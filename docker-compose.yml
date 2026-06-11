@@ -1,0 +1,11 @@
+services:
+  gitlab-wiki-chat:
+    build: .
+    container_name: gitlab-wiki-chat
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data/wikis:/app/data/wikis
