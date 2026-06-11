@@ -12,7 +12,7 @@ help: ## Affiche cette aide
 
 env: ## Crée le fichier .env à partir de .env.example (si absent)
 	@test -f .env || cp .env.example .env
-	@echo "-> .env prêt. Pense à éditer les variables (GITLAB_*, ANTHROPIC_API_KEY / VLLM_*, ...)."
+	@echo "-> .env prêt. Pense à éditer les variables (GITLAB_*, LLM_PROVIDER, VLLM_* / ANTHROPIC_*, ...)."
 
 install: env ## Crée l'environnement virtuel et installe les dépendances
 	python3 -m venv $(VENV)

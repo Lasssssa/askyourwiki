@@ -1,4 +1,4 @@
-# Architecture - GitLab Wiki Chat
+# Architecture - AskYourWiki
 
 Ce document décrit le fonctionnement interne de l'application : comment les composants
 s'articulent, comment les données circulent, et les choix de conception importants.
@@ -7,11 +7,11 @@ s'articulent, comment les données circulent, et les choix de conception importa
 
 ```
 ┌─────────────┐      ┌──────────────────────────────────────────────┐      ┌─────────────┐
-│   GitLab     │◄────►│              FastAPI (main.py)                │◄────►│   Claude     │
-│ (projets &   │ REST │                                                │ API  │ (Anthropic)  │
-│  groupes,    │      │  ┌────────────┐  ┌────────────┐  ┌──────────┐ │      └─────────────┘
-│  wikis)      │      │  │ SyncManager│  │ WikiStore  │  │ context/ │ │
-└─────────────┘      │  │(gitlab/sync│  │(storage/   │  │ claude   │ │
+│   GitLab     │◄────►│              FastAPI (main.py)                │◄────►│  LLM backend │
+│ (projets &   │ REST │                                                │ API  │ (vLLM /      │
+│  groupes,    │      │  ┌────────────┐  ┌────────────┐  ┌──────────┐ │      │  Anthropic)  │
+│  wikis)      │      │  │ SyncManager│  │ WikiStore  │  │ context/ │ │      └─────────────┘
+└─────────────┘      │  │(gitlab/sync│  │(storage/   │  │  chat    │ │
                       │  │   .py)     │  │wiki_store) │  │ (chat/)  │ │
                       │  └────────────┘  └────────────┘  └──────────┘ │
                       │         │               │                      │
@@ -30,7 +30,8 @@ L'application a deux flux principaux :
 1. **Flux de synchronisation** : GitLab → `gitlab/client.py` → `gitlab/sync.py` →
    `storage/wiki_store.py` → fichiers markdown dans `data/wikis/`.
 2. **Flux de chat** : navigateur → `POST /api/chat` → `chat/context.py` (lit
-   `data/wikis/`) → `chat/claude.py` (appel API Anthropic en streaming) → SSE → navigateur.
+   `data/wikis/`) → backend LLM (`chat/vllm.py` ou `chat/anthropic_chat.py`, appel en
+   streaming) → SSE → navigateur.
 
 ## Configuration (`config.py`)
 
@@ -40,9 +41,11 @@ depuis `.env`). Expose un objet singleton `config` utilisé par tous les modules
 - `GITLAB_URL`, `GITLAB_TOKEN` : accès à l'instance GitLab
 - `GITLAB_PROJECT_IDS`, `GITLAB_GROUP_IDS` : listes d'IDs (parsées depuis des chaînes
   `"123,456"`), scopes à synchroniser
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` : accès à l'API Claude
+- `LLM_PROVIDER` : backend LLM utilisé (`vllm` par défaut, ou `anthropic`)
+- `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY` : accès au modèle auto-hébergé compatible OpenAI
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` : accès à l'API hébergée Anthropic (si `LLM_PROVIDER=anthropic`)
 - `SYNC_INTERVAL_MINUTES` : fréquence du job de sync planifié
-- `MAX_CONTEXT_TOKENS` (150 000 par défaut) : budget de tokens pour le contexte envoyé à Claude
+- `MAX_CONTEXT_TOKENS` (150 000 par défaut) : budget de tokens pour le contexte envoyé au modèle
 - `MAX_HISTORY_MESSAGES` (5 par défaut) : nombre d'échanges d'historique conservés
 - `DATA_DIR` : `data/wikis/`, racine du stockage local
 
@@ -100,11 +103,11 @@ Couche de persistance fichier, sans base de données.
   en premier) — cet ordre est ensuite exploité pour la troncature du contexte.
 - `count_pages()` / `reset_scope()` sont des utilitaires pour le statut et la resync.
 
-## Chat avec Claude
+## Chat avec le modèle LLM
 
 ### `chat/context.py` — `build_context()`
 
-Construit le texte qui sera injecté dans le system prompt de Claude.
+Construit le texte qui sera injecté dans le system prompt du modèle.
 
 - Charge toutes les pages via `WikiStore.load_all_pages()` (déjà triées, plus récentes
   d'abord).
@@ -122,7 +125,7 @@ Construit le texte qui sera injecté dans le system prompt de Claude.
 
 ### `chat/base.py` — `BaseChat` et backends interchangeables
 
-Le moteur de génération est **pluggable** via `LLM_PROVIDER` (`anthropic` ou `vllm`).
+Le moteur de génération est **pluggable** via `LLM_PROVIDER` (`vllm` ou `anthropic`).
 `BaseChat` factorise ce qui est commun aux deux backends :
 
 - `SYSTEM_PROMPT_TEMPLATE` : instruit le modèle de répondre **uniquement** à partir du
@@ -136,27 +139,26 @@ Le moteur de génération est **pluggable** via `LLM_PROVIDER` (`anthropic` ou `
   chaque fragment de texte de la réponse — c'est l'interface implémentée par chaque backend
   et consommée directement par l'endpoint FastAPI.
 
-#### `chat/claude.py` — `ClaudeChat` (backend par défaut)
-
-Utilise le SDK officiel `anthropic` (`AsyncAnthropic`). `stream_response()` appelle
-`client.messages.stream(...)` avec le modèle `claude-sonnet-4-20250514` (system prompt +
-messages), et relaie `stream.text_stream`. En cas d'erreur API (`APIError`), un message
-d'erreur est yield comme texte plutôt que de lever une exception, pour que le flux SSE se
-termine proprement côté client.
-
-#### `chat/vllm.py` — `VLLMChat` (modèle auto-hébergé)
+#### `chat/vllm.py` — `VLLMChat` (backend par défaut, modèle auto-hébergé)
 
 Utilise le SDK `openai` (`AsyncOpenAI`) pointé vers `VLLM_BASE_URL` (l'endpoint
-`/v1/chat/completions` compatible OpenAI exposé par vLLM). Le system prompt est passé comme
-premier message `role: "system"` dans la liste `messages` (contrairement à l'API Anthropic
-qui a un paramètre `system` séparé). `stream_response()` consomme le flux
-`chat.completions.create(..., stream=True)` et yield `chunk.choices[0].delta.content` à
-chaque itération. Mêmes garanties d'erreur que `ClaudeChat` (message d'erreur yield plutôt
-qu'exception).
+`/v1/chat/completions` compatible OpenAI exposé par vLLM ou tout serveur équivalent). Le
+system prompt est passé comme premier message `role: "system"` dans la liste `messages`.
+`stream_response()` consomme le flux `chat.completions.create(..., stream=True)` et yield
+`chunk.choices[0].delta.content` à chaque itération. En cas d'erreur API, un message d'erreur
+est yield comme texte plutôt que de lever une exception, pour que le flux SSE se termine
+proprement côté client.
+
+#### `chat/anthropic_chat.py` — `AnthropicChat` (API hébergée, optionnel)
+
+Utilise le SDK officiel `anthropic` (`AsyncAnthropic`). `stream_response()` appelle
+`client.messages.stream(...)` avec le modèle configuré (`ANTHROPIC_MODEL`, system prompt +
+messages), et relaie `stream.text_stream`. Mêmes garanties d'erreur que `VLLMChat` (message
+d'erreur yield plutôt qu'exception).
 
 #### Sélection du backend (`main.py`)
 
-`_build_chat_client()` lit `config.LLM_PROVIDER` et instancie `ClaudeChat` ou `VLLMChat` en
+`_build_chat_client()` lit `config.LLM_PROVIDER` et instancie `VLLMChat` ou `AnthropicChat` en
 conséquence (ou retourne `None` si la configuration requise est manquante, auquel cas
 `/api/chat` répond 503). Le reste de l'application (sync, contexte, UI, streaming SSE) est
 strictement identique quel que soit le backend choisi.
@@ -164,8 +166,9 @@ strictement identique quel que soit le backend choisi.
 ## API FastAPI (`main.py`)
 
 Au chargement du module :
-- Instancie `WikiStore`, `SyncManager`, `AsyncIOScheduler`, et `ClaudeChat` (si
-  `ANTHROPIC_API_KEY` est configuré — sinon `/api/chat` répondra 503).
+- Instancie `WikiStore`, `SyncManager`, `AsyncIOScheduler`, et le `chat_client` correspondant
+  à `LLM_PROVIDER` via `_build_chat_client()` (si la configuration requise est manquante,
+  `chat_client` vaut `None` et `/api/chat` répondra 503).
 
 `lifespan` (cycle de vie de l'app) :
 1. Log les avertissements de config manquante.
@@ -188,11 +191,12 @@ Routes :
 
 ### `POST /api/chat` en détail
 
-1. Lit `{message, history}` du body JSON. 503 si Claude non configuré, 400 si message vide.
+1. Lit `{message, history}` du body JSON. 503 si aucun backend LLM n'est configuré, 400 si
+   message vide.
 2. Construit le contexte wiki via `build_context(store, config.MAX_CONTEXT_TOKENS)` —
    **rechargé à chaque requête** (donc reflète immédiatement la dernière synchronisation).
 3. Retourne une `StreamingResponse` (`text/event-stream`) qui :
-   - itère sur `claude_chat.stream_response(message, history, context.text)`,
+   - itère sur `chat_client.stream_response(message, history, context.text)`,
    - émet chaque fragment sous la forme `data: {"delta": "..."}\n\n`,
    - émet `data: {"error": "..."}\n\n` en cas d'exception,
    - termine toujours par `data: [DONE]\n\n`.
@@ -229,7 +233,7 @@ Démarrage de l'app
 Requête /api/chat
    │
    ├─► build_context()  ← lit data/wikis/**/*.md (état courant, post-dernière sync)
-   ├─► ClaudeChat.stream_response(message, history, context)
+   ├─► chat_client.stream_response(message, history, context)
    └─► SSE → navigateur (rendu progressif)
 
 Requête /api/sync (manuel, ou bouton UI)
@@ -249,5 +253,5 @@ Requête /api/sync (manuel, ou bouton UI)
 - **Heuristique de tokens (4 car./token)** plutôt qu'un tokenizer exact : suffisant pour
   rester sous la limite de contexte avec une marge de sécurité, sans dépendance
   supplémentaire.
-- **Streaming de bout en bout** (Claude → SSE → fetch reader → DOM) pour un retour visuel
+- **Streaming de bout en bout** (modèle LLM → SSE → fetch reader → DOM) pour un retour visuel
   immédiat, conformément au cahier des charges.
