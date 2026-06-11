@@ -6,7 +6,7 @@
 
 const appEl = document.getElementById("app");
 const messagesEl = document.getElementById("messages");
-const welcomeEl = document.getElementById("welcome");
+const welcomeTemplate = document.getElementById("welcome-template");
 const chatAreaEl = document.getElementById("chat-area");
 
 const inputEl = document.getElementById("message-input");
@@ -29,9 +29,15 @@ const sidebarOpenBtn = document.getElementById("sidebar-open");
 const sidebarCloseBtn = document.getElementById("sidebar-close");
 const sidebarOverlay = document.getElementById("sidebar-overlay");
 
+// --- Constants -----------------------------------------------------------------
+
+const TEXTAREA_MAX_HEIGHT_PX = 200;
+const STATUS_REFRESH_INTERVAL_MS = 30000;
+const SYNC_RESET_DELAY_MS = 2500;
+
 // --- State -------------------------------------------------------------------
 
-const history = [];
+const conversationHistory = [];
 let isStreaming = false;
 
 // --- Markdown / syntax highlighting setup ------------------------------------
@@ -88,22 +94,45 @@ function scrollToBottom() {
   chatAreaEl.scrollTop = chatAreaEl.scrollHeight;
 }
 
-function hideWelcome() {
-  if (welcomeEl) welcomeEl.remove();
+function showWelcomeScreen() {
+  messagesEl.appendChild(welcomeTemplate.content.cloneNode(true));
 }
 
-function appendMessage(role, content) {
-  hideWelcome();
+function hideWelcome() {
+  document.getElementById("welcome")?.remove();
+}
 
+function avatarTextForRole(role) {
+  if (role === "user") return "🧑";
+  if (role === "error") return "⚠️";
+  return "🤖";
+}
+
+// Builds the shared "avatar + bubble column" layout for a message row,
+// ordering the parts so user messages appear on the right.
+function buildMessageRow(role, bubble) {
   const wrapper = document.createElement("div");
   wrapper.className = `message ${role}`;
 
   const avatar = document.createElement("div");
   avatar.className = "avatar";
-  avatar.textContent = role === "user" ? "🧑" : role === "error" ? "⚠️" : "🤖";
+  avatar.textContent = avatarTextForRole(role);
 
   const col = document.createElement("div");
   col.className = "bubble-col";
+  col.appendChild(bubble);
+
+  if (role === "user") {
+    wrapper.append(col, avatar);
+  } else {
+    wrapper.append(avatar, col);
+  }
+
+  return wrapper;
+}
+
+function appendMessage(role, content) {
+  hideWelcome();
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
@@ -114,17 +143,7 @@ function appendMessage(role, content) {
     bubble.textContent = content;
   }
 
-  col.appendChild(bubble);
-
-  if (role === "user") {
-    wrapper.appendChild(col);
-    wrapper.appendChild(avatar);
-  } else {
-    wrapper.appendChild(avatar);
-    wrapper.appendChild(col);
-  }
-
-  messagesEl.appendChild(wrapper);
+  messagesEl.appendChild(buildMessageRow(role, bubble));
   scrollToBottom();
   return bubble;
 }
@@ -132,38 +151,25 @@ function appendMessage(role, content) {
 function appendTypingIndicator() {
   hideWelcome();
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "message assistant";
-  wrapper.id = "typing-indicator";
-
-  const avatar = document.createElement("div");
-  avatar.className = "avatar";
-  avatar.textContent = "🤖";
-
-  const col = document.createElement("div");
-  col.className = "bubble-col";
-
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
-  col.appendChild(bubble);
-  wrapper.appendChild(avatar);
-  wrapper.appendChild(col);
+  const wrapper = buildMessageRow("assistant", bubble);
+  wrapper.id = "typing-indicator";
   messagesEl.appendChild(wrapper);
   scrollToBottom();
 }
 
 function removeTypingIndicator() {
-  const el = document.getElementById("typing-indicator");
-  if (el) el.remove();
+  document.getElementById("typing-indicator")?.remove();
 }
 
 // --- Composer -------------------------------------------------------------------
 
 function autoResizeTextarea() {
   inputEl.style.height = "auto";
-  inputEl.style.height = `${Math.min(inputEl.scrollHeight, 200)}px`;
+  inputEl.style.height = `${Math.min(inputEl.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
 }
 
 function updateSendButtonState() {
@@ -189,18 +195,9 @@ sendBtn.addEventListener("click", sendMessage);
 newChatBtn.addEventListener("click", () => {
   if (isStreaming) return;
 
-  history.length = 0;
+  conversationHistory.length = 0;
   messagesEl.innerHTML = "";
-
-  const fresh = document.createElement("div");
-  fresh.className = "welcome";
-  fresh.id = "welcome";
-  fresh.innerHTML = `
-    <div class="welcome-logo">📚</div>
-    <h2>Posez une question sur vos wikis</h2>
-    <p>Les réponses sont générées à partir du contenu des wikis GitLab indexés.</p>
-  `;
-  messagesEl.appendChild(fresh);
+  showWelcomeScreen();
 
   inputEl.value = "";
   autoResizeTextarea();
@@ -229,7 +226,7 @@ async function sendMessage() {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ message, history: conversationHistory }),
     });
 
     if (!response.ok || !response.body) {
@@ -296,8 +293,8 @@ async function sendMessage() {
     }
 
     if (assistantText) {
-      history.push({ role: "user", content: message });
-      history.push({ role: "assistant", content: assistantText });
+      conversationHistory.push({ role: "user", content: message });
+      conversationHistory.push({ role: "assistant", content: assistantText });
     }
   } catch (err) {
     removeTypingIndicator();
@@ -380,7 +377,7 @@ async function triggerSync() {
     syncBtn.classList.remove("success", "error");
     syncLabel.textContent = "Synchroniser les wikis";
     syncBtn.disabled = false;
-  }, 2500);
+  }, SYNC_RESET_DELAY_MS);
 }
 
 syncBtn.addEventListener("click", triggerSync);
@@ -410,7 +407,8 @@ async function loadConfig() {
 
 // --- Init ---------------------------------------------------------------------------
 
+showWelcomeScreen();
 updateSendButtonState();
 loadConfig();
 refreshStatus();
-setInterval(refreshStatus, 30000);
+setInterval(refreshStatus, STATUS_REFRESH_INTERVAL_MS);

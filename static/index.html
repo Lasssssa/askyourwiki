@@ -77,13 +77,7 @@
       </header>
 
       <main class="chat-area" id="chat-area">
-        <div class="messages" id="messages">
-          <div class="welcome" id="welcome">
-            <div class="welcome-logo">📚</div>
-            <h2>Posez une question sur vos wikis</h2>
-            <p>Les réponses sont générées à partir du contenu des wikis GitLab indexés.</p>
-          </div>
-        </div>
+        <div class="messages" id="messages"></div>
       </main>
 
       <footer class="composer">
@@ -104,6 +98,18 @@
       </footer>
     </div>
   </div>
+
+  <template id="welcome-template">
+    <div class="welcome" id="welcome">
+      <div class="welcome-logo">
+        <svg class="brand-logo" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M22.65 10.31 12 18.71 1.35 10.31a.84.84 0 0 1-.31-.94l1.71-5.27a.42.42 0 0 1 .8 0l1.72 5.27h6.46l1.72-5.27a.42.42 0 0 1 .8 0l1.72 5.27a.84.84 0 0 1-.32.94Z"/>
+        </svg>
+      </div>
+      <h2>Posez une question sur vos wikis</h2>
+      <p>Les réponses sont générées à partir du contenu des wikis GitLab indexés.</p>
+    </div>
+  </template>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>

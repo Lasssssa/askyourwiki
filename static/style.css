@@ -695,14 +695,14 @@ textarea {
   height: 34px;
   border-radius: var(--radius-md);
   border: none;
-  background: var(--accent);
+  background: #fc6d26;
   color: #fff;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: #e24329;
 }
 
 .send-btn:active:not(:disabled) {
