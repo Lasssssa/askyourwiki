@@ -1,4 +1,4 @@
-"""Chargement et validation de la configuration depuis les variables d'environnement."""
+"""Load and validate configuration from environment variables."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _parse_id_list(raw: str | None) -> list[int]:
         try:
             ids.append(int(part))
         except ValueError:
-            logging.getLogger(__name__).warning("ID invalide ignoré dans la configuration: %r", part)
+            logging.getLogger(__name__).warning("Invalid ID ignored in configuration: %r", part)
     return ids
 
 
@@ -37,15 +37,15 @@ class Config:
     GITLAB_PROJECT_IDS: list[int] = _parse_id_list(os.getenv("GITLAB_PROJECT_IDS"))
     GITLAB_GROUP_IDS: list[int] = _parse_id_list(os.getenv("GITLAB_GROUP_IDS"))
 
-    # "vllm" (par défaut, modèle auto-hébergé compatible OpenAI) ou "anthropic" (API hébergée)
+    # "vllm" (default, OpenAI-compatible self-hosted model) or "anthropic" (hosted API)
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "vllm").strip().lower()
 
-    # Configuration pour un serveur vLLM (ou tout autre serveur exposant une API compatible OpenAI)
+    # Configuration for a vLLM server (or any other server exposing an OpenAI-compatible API)
     VLLM_BASE_URL: str = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
     VLLM_MODEL: str = os.getenv("VLLM_MODEL", "")
     VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
 
-    # Configuration pour l'API hébergée Anthropic (optionnel)
+    # Configuration for the hosted Anthropic API (optional)
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "")
 
@@ -60,26 +60,26 @@ class Config:
 
     @classmethod
     def validate(cls) -> list[str]:
-        """Retourne une liste de messages d'avertissement pour la configuration manquante."""
+        """Return a list of warning messages for missing configuration."""
         warnings = []
         if not cls.GITLAB_URL:
-            warnings.append("GITLAB_URL n'est pas configuré.")
+            warnings.append("GITLAB_URL is not configured.")
         if not cls.GITLAB_TOKEN:
-            warnings.append("GITLAB_TOKEN n'est pas configuré.")
+            warnings.append("GITLAB_TOKEN is not configured.")
         if not cls.GITLAB_PROJECT_IDS and not cls.GITLAB_GROUP_IDS:
-            warnings.append("Aucun GITLAB_PROJECT_IDS ni GITLAB_GROUP_IDS configuré.")
+            warnings.append("No GITLAB_PROJECT_IDS or GITLAB_GROUP_IDS configured.")
         if cls.LLM_PROVIDER == "vllm":
             if not cls.VLLM_BASE_URL:
-                warnings.append("VLLM_BASE_URL n'est pas configuré.")
+                warnings.append("VLLM_BASE_URL is not configured.")
             if not cls.VLLM_MODEL:
-                warnings.append("VLLM_MODEL n'est pas configuré.")
+                warnings.append("VLLM_MODEL is not configured.")
         elif cls.LLM_PROVIDER == "anthropic":
             if not cls.ANTHROPIC_API_KEY:
-                warnings.append("ANTHROPIC_API_KEY n'est pas configuré.")
+                warnings.append("ANTHROPIC_API_KEY is not configured.")
             if not cls.ANTHROPIC_MODEL:
-                warnings.append("ANTHROPIC_MODEL n'est pas configuré.")
+                warnings.append("ANTHROPIC_MODEL is not configured.")
         else:
-            warnings.append(f"LLM_PROVIDER={cls.LLM_PROVIDER!r} inconnu (valeurs valides: 'vllm', 'anthropic').")
+            warnings.append(f"Unknown LLM_PROVIDER={cls.LLM_PROVIDER!r} (valid values: 'vllm', 'anthropic').")
         return warnings
 
 

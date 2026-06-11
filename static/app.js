@@ -58,7 +58,7 @@ try {
     marked.setOptions({ breaks: true, gfm: true });
   }
 } catch {
-  // marked / highlight.js indisponibles (CDN bloqué) : on retombera sur du texte brut.
+  // marked / highlight.js unavailable (CDN blocked): fall back to plain text.
 }
 
 function renderMarkdown(text) {
@@ -66,7 +66,7 @@ function renderMarkdown(text) {
     try {
       return marked.parse(text || "");
     } catch {
-      // ignore et retombe sur l'échappement HTML brut
+      // ignore and fall back to raw HTML escaping
     }
   }
   const div = document.createElement("div");
@@ -236,9 +236,9 @@ async function sendMessage() {
         const errBody = await response.json();
         detail = errBody.error || errBody.detail || "";
       } catch {
-        // pas de corps JSON exploitable
+        // no usable JSON body
       }
-      appendMessage("error", detail || `Erreur serveur (${response.status}).`);
+      appendMessage("error", detail || `Server error (${response.status}).`);
       return;
     }
 
@@ -252,7 +252,7 @@ async function sendMessage() {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n\n");
-      buffer = lines.pop(); // dernier fragment incomplet
+      buffer = lines.pop(); // last incomplete fragment
 
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
@@ -288,7 +288,7 @@ async function sendMessage() {
     removeTypingIndicator();
 
     if (assistantBubble) {
-      // Retire le curseur de streaming une fois la réponse terminée
+      // Remove the streaming cursor once the response is complete
       assistantBubble.innerHTML = renderMarkdown(assistantText);
     }
 
@@ -298,7 +298,7 @@ async function sendMessage() {
     }
   } catch (err) {
     removeTypingIndicator();
-    appendMessage("error", `Erreur de connexion : ${err.message}`);
+    appendMessage("error", `Connection error: ${err.message}`);
   } finally {
     isStreaming = false;
     updateSendButtonState();
@@ -309,22 +309,22 @@ async function sendMessage() {
 // --- Status & sync ---------------------------------------------------------------
 
 function formatRelativeTime(isoString) {
-  if (!isoString) return "jamais";
+  if (!isoString) return "never";
 
   const date = new Date(isoString);
   const diffMs = Date.now() - date.getTime();
   const diffMin = Math.round(diffMs / 60000);
 
-  if (diffMin < 1) return "à l'instant";
-  if (diffMin === 1) return "il y a 1 min";
-  if (diffMin < 60) return `il y a ${diffMin} min`;
+  if (diffMin < 1) return "just now";
+  if (diffMin === 1) return "1 min ago";
+  if (diffMin < 60) return `${diffMin} min ago`;
 
   const diffHours = Math.round(diffMin / 60);
-  if (diffHours === 1) return "il y a 1 h";
-  if (diffHours < 24) return `il y a ${diffHours} h`;
+  if (diffHours === 1) return "1 hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
 
   const diffDays = Math.round(diffHours / 24);
-  return diffDays === 1 ? "il y a 1 jour" : `il y a ${diffDays} jours`;
+  return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
 }
 
 async function refreshStatus() {
@@ -333,18 +333,18 @@ async function refreshStatus() {
     const data = await response.json();
 
     statusPagesEl.textContent = `${data.pages_indexed ?? 0}`;
-    statusSyncEl.textContent = data.is_syncing ? "en cours..." : formatRelativeTime(data.last_sync_at);
+    statusSyncEl.textContent = data.is_syncing ? "syncing..." : formatRelativeTime(data.last_sync_at);
 
     if (data.last_sync_errors && data.last_sync_errors.length > 0) {
       statusErrorEl.hidden = false;
-      statusErrorEl.textContent = `${data.last_sync_errors.length} erreur(s) lors de la dernière synchro.`;
+      statusErrorEl.textContent = `${data.last_sync_errors.length} error(s) during the last sync.`;
     } else {
       statusErrorEl.hidden = true;
       statusErrorEl.textContent = "";
     }
   } catch {
     statusPagesEl.textContent = "—";
-    statusSyncEl.textContent = "indisponible";
+    statusSyncEl.textContent = "unavailable";
   }
 }
 
@@ -352,7 +352,7 @@ async function triggerSync() {
   syncBtn.disabled = true;
   syncBtn.classList.remove("success", "error");
   syncSpinner.hidden = false;
-  syncLabel.textContent = "Synchronisation...";
+  syncLabel.textContent = "Syncing...";
 
   try {
     const response = await fetch("/api/sync", { method: "POST" });
@@ -360,14 +360,14 @@ async function triggerSync() {
 
     if (!response.ok) {
       syncBtn.classList.add("error");
-      syncLabel.textContent = data.error || "Échec de la synchronisation";
+      syncLabel.textContent = data.error || "Sync failed";
     } else {
       syncBtn.classList.add("success");
-      syncLabel.textContent = `${data.pages_indexed ?? 0} page(s) synchronisée(s)`;
+      syncLabel.textContent = `${data.pages_indexed ?? 0} page(s) synced`;
     }
   } catch {
     syncBtn.classList.add("error");
-    syncLabel.textContent = "Erreur de connexion";
+    syncLabel.textContent = "Connection error";
   }
 
   syncSpinner.hidden = true;
@@ -375,14 +375,14 @@ async function triggerSync() {
 
   setTimeout(() => {
     syncBtn.classList.remove("success", "error");
-    syncLabel.textContent = "Synchroniser les wikis";
+    syncLabel.textContent = "Sync wikis";
     syncBtn.disabled = false;
   }, SYNC_RESET_DELAY_MS);
 }
 
 syncBtn.addEventListener("click", triggerSync);
 
-// --- App config (instance GitLab, titre) ------------------------------------------
+// --- App config (GitLab instance, title) ------------------------------------------
 
 async function loadConfig() {
   try {
@@ -401,7 +401,7 @@ async function loadConfig() {
       headerTitle.textContent = data.title;
     }
   } catch {
-    // /api/config indisponible : on garde les valeurs par défaut, sans bloquer l'UI.
+    // /api/config unavailable: keep the default values without blocking the UI.
   }
 }
 

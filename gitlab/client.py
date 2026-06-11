@@ -1,4 +1,4 @@
-"""Client asynchrone pour l'API REST GitLab (v4)."""
+"""Asynchronous client for the GitLab REST API (v4)."""
 
 from __future__ import annotations
 
@@ -11,23 +11,23 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabAPIError(Exception):
-    """Erreur générique lors d'un appel à l'API GitLab."""
+    """Generic error during a call to the GitLab API."""
 
 
 class GitLabAuthError(GitLabAPIError):
-    """Token GitLab invalide ou expiré (401)."""
+    """Invalid or expired GitLab token (401)."""
 
 
 class GitLabNotFoundError(GitLabAPIError):
-    """Ressource introuvable ou inaccessible (404), ou wiki désactivé."""
+    """Resource not found or inaccessible (404), or wiki disabled."""
 
 
 class GitLabClient:
-    """Client minimal pour récupérer les pages de wiki des projets et groupes GitLab."""
+    """Minimal client for fetching wiki pages of GitLab projects and groups."""
 
     def __init__(self, base_url: str, token: str, timeout: float = 30.0) -> None:
         if not base_url:
-            raise ValueError("GITLAB_URL doit être configuré.")
+            raise ValueError("GITLAB_URL must be configured.")
         self.base_url = base_url.rstrip("/")
         self.token = token
         self._client = httpx.AsyncClient(
@@ -49,19 +49,19 @@ class GitLabClient:
         try:
             response = await self._client.get(path, params=params)
         except httpx.RequestError as exc:
-            raise GitLabAPIError(f"Erreur réseau lors de l'appel à {path}: {exc}") from exc
+            raise GitLabAPIError(f"Network error while calling {path}: {exc}") from exc
 
         if response.status_code == 401:
-            raise GitLabAuthError(f"Authentification GitLab refusée (token invalide ou expiré) pour {path}.")
+            raise GitLabAuthError(f"GitLab authentication refused (invalid or expired token) for {path}.")
         if response.status_code == 404:
-            raise GitLabNotFoundError(f"Ressource introuvable ou wiki désactivé: {path}")
+            raise GitLabNotFoundError(f"Resource not found or wiki disabled: {path}")
         if response.is_error:
-            raise GitLabAPIError(f"Erreur GitLab {response.status_code} sur {path}: {response.text[:200]}")
+            raise GitLabAPIError(f"GitLab error {response.status_code} on {path}: {response.text[:200]}")
 
         return response
 
     async def _get_paginated(self, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """Récupère toutes les pages d'une ressource paginée GitLab (pagination par offset)."""
+        """Fetches all pages of a paginated GitLab resource (offset-based pagination)."""
         results: list[dict[str, Any]] = []
         page = 1
         params = dict(params or {})
@@ -72,7 +72,7 @@ class GitLabClient:
             response = await self._get(path, params=params)
             data = response.json()
             if not isinstance(data, list):
-                raise GitLabAPIError(f"Réponse inattendue (non paginée) pour {path}.")
+                raise GitLabAPIError(f"Unexpected (non-paginated) response for {path}.")
             results.extend(data)
 
             next_page = response.headers.get("X-Next-Page")
@@ -83,11 +83,11 @@ class GitLabClient:
         return results
 
     async def get_project_wiki_pages(self, project_id: int) -> list[dict[str, Any]]:
-        """Récupère toutes les pages de wiki d'un projet, contenu inclus."""
+        """Fetches all wiki pages of a project, including content."""
         return await self._get_wiki_pages("projects", project_id)
 
     async def get_group_wiki_pages(self, group_id: int) -> list[dict[str, Any]]:
-        """Récupère toutes les pages de wiki d'un groupe, contenu inclus."""
+        """Fetches all wiki pages of a group, including content."""
         return await self._get_wiki_pages("groups", group_id)
 
     async def _get_wiki_pages(
@@ -97,5 +97,5 @@ class GitLabClient:
         try:
             return await self._get_paginated(path, params={"with_content": 1})
         except GitLabNotFoundError:
-            logger.warning("Wiki introuvable ou désactivé pour %s %s.", scope, scope_id)
+            logger.warning("Wiki not found or disabled for %s %s.", scope, scope_id)
             return []

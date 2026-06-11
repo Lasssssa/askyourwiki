@@ -1,4 +1,4 @@
-"""Point d'entrée FastAPI pour l'application de chat sur les wikis GitLab."""
+"""FastAPI entry point for the GitLab wiki chat application."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ scheduler = AsyncIOScheduler()
 def _build_chat_client() -> BaseChat | None:
     if config.LLM_PROVIDER == "vllm":
         if not (config.VLLM_BASE_URL and config.VLLM_MODEL):
-            logger.warning("VLLM_BASE_URL/VLLM_MODEL non configurés: l'endpoint /api/chat sera indisponible.")
+            logger.warning("VLLM_BASE_URL/VLLM_MODEL not configured: the /api/chat endpoint will be unavailable.")
             return None
         return VLLMChat(
             base_url=config.VLLM_BASE_URL,
@@ -40,7 +40,9 @@ def _build_chat_client() -> BaseChat | None:
 
     if config.LLM_PROVIDER == "anthropic":
         if not (config.ANTHROPIC_API_KEY and config.ANTHROPIC_MODEL):
-            logger.warning("ANTHROPIC_API_KEY/ANTHROPIC_MODEL non configurés: l'endpoint /api/chat sera indisponible.")
+            logger.warning(
+                "ANTHROPIC_API_KEY/ANTHROPIC_MODEL not configured: the /api/chat endpoint will be unavailable."
+            )
             return None
         return AnthropicChat(
             api_key=config.ANTHROPIC_API_KEY,
@@ -48,7 +50,7 @@ def _build_chat_client() -> BaseChat | None:
             max_history_messages=config.MAX_HISTORY_MESSAGES,
         )
 
-    logger.warning("LLM_PROVIDER=%r inconnu: l'endpoint /api/chat sera indisponible.", config.LLM_PROVIDER)
+    logger.warning("Unknown LLM_PROVIDER=%r: the /api/chat endpoint will be unavailable.", config.LLM_PROVIDER)
     return None
 
 
@@ -61,7 +63,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Configuration: %s", warning)
 
     if config.GITLAB_PROJECT_IDS or config.GITLAB_GROUP_IDS:
-        logger.info("Lancement de la synchronisation initiale des wikis...")
+        logger.info("Starting initial wiki synchronization...")
         await sync_manager.sync_all()
 
         scheduler.add_job(
@@ -72,9 +74,9 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
         scheduler.start()
-        logger.info("Synchronisation automatique programmée toutes les %d minute(s).", config.SYNC_INTERVAL_MINUTES)
+        logger.info("Automatic synchronization scheduled every %d minute(s).", config.SYNC_INTERVAL_MINUTES)
     else:
-        logger.warning("Aucun projet/groupe GitLab configuré: la synchronisation est désactivée.")
+        logger.warning("No GitLab project/group configured: synchronization is disabled.")
 
     yield
 
@@ -96,7 +98,7 @@ async def trigger_sync() -> JSONResponse:
     if not (config.GITLAB_PROJECT_IDS or config.GITLAB_GROUP_IDS):
         return JSONResponse(
             status_code=400,
-            content={"error": "Aucun projet/groupe GitLab configuré."},
+            content={"error": "No GitLab project/group configured."},
         )
 
     result = await sync_manager.sync_all()
@@ -112,7 +114,7 @@ async def status() -> JSONResponse:
 async def chat(request: Request) -> StreamingResponse:
     if chat_client is None:
         return StreamingResponse(
-            iter([f"data: {json.dumps({'error': 'Aucun backend LLM configuré (voir LLM_PROVIDER).'})}\n\n"]),
+            iter([f"data: {json.dumps({'error': 'No LLM backend configured (see LLM_PROVIDER).'})}\n\n"]),
             media_type="text/event-stream",
             status_code=503,
         )
@@ -123,7 +125,7 @@ async def chat(request: Request) -> StreamingResponse:
 
     if not message:
         return StreamingResponse(
-            iter([f"data: {json.dumps({'error': 'Le message ne peut pas être vide.'})}\n\n"]),
+            iter([f"data: {json.dumps({'error': 'The message cannot be empty.'})}\n\n"]),
             media_type="text/event-stream",
             status_code=400,
         )
@@ -134,8 +136,8 @@ async def chat(request: Request) -> StreamingResponse:
         try:
             async for delta in chat_client.stream_response(message, history, context.text):
                 yield f"data: {json.dumps({'delta': delta})}\n\n"
-        except Exception as exc:  # pragma: no cover - garde-fou ultime pour le streaming
-            logger.exception("Erreur inattendue pendant le streaming de la réponse.")
+        except Exception as exc:  # pragma: no cover - last-resort safeguard for streaming
+            logger.exception("Unexpected error while streaming the response.")
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
         finally:
             yield "data: [DONE]\n\n"

@@ -1,4 +1,4 @@
-"""Construction du contexte système à partir des pages de wiki stockées localement."""
+"""Building the system context from locally stored wiki pages."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from storage.wiki_store import WikiPage, WikiStore
 
 logger = logging.getLogger(__name__)
 
-# Estimation simple: ~4 caractères par token (heuristique courante pour FR/EN).
+# Simple estimate: ~4 characters per token (common heuristic for FR/EN).
 CHARS_PER_TOKEN = 4
 
 
@@ -30,18 +30,18 @@ def _format_page(page: WikiPage) -> str:
 
 
 def build_context(store: WikiStore, max_tokens: int) -> WikiContext:
-    """Construit le contexte système à partir de toutes les pages de wiki disponibles.
+    """Builds the system context from all available wiki pages.
 
-    Les pages sont déjà triées par date de synchronisation (plus récentes en premier).
-    Si le contexte dépasse `max_tokens`, on tronque en conservant en priorité les
-    pages les plus récentes et en arrêtant dès que le budget est atteint.
+    Pages are already sorted by sync date (most recent first). If the
+    context exceeds `max_tokens`, it is truncated, prioritizing the most
+    recent pages and stopping as soon as the budget is reached.
     """
     pages = store.load_all_pages()
     max_chars = max_tokens * CHARS_PER_TOKEN
 
     if not pages:
         return WikiContext(
-            text="Aucune page de wiki n'est actuellement indexée.",
+            text="No wiki pages are currently indexed.",
             pages_included=0,
             pages_total=0,
             truncated=False,
@@ -60,19 +60,19 @@ def build_context(store: WikiStore, max_tokens: int) -> WikiContext:
         total_chars += len(section)
 
     if not sections:
-        # La page la plus récente seule dépasse déjà le budget: on la tronque.
+        # The most recent page alone already exceeds the budget: truncate it.
         first = _format_page(pages[0])
         sections = [first[:max_chars]]
         truncated = True
 
     text = (
-        "Voici le contenu des wikis GitLab indexés. Chaque section correspond à une page de wiki.\n\n"
+        "Here is the content of the indexed GitLab wikis. Each section corresponds to a wiki page.\n\n"
         + "\n---\n\n".join(sections)
     )
 
     if truncated:
         logger.info(
-            "Contexte tronqué: %d/%d page(s) incluse(s) (~%d tokens).",
+            "Context truncated: %d/%d page(s) included (~%d tokens).",
             len(sections),
             len(pages),
             total_chars // CHARS_PER_TOKEN,

@@ -1,6 +1,6 @@
 /* ==========================================================================
    AskYourWiki — Dark UI
-   Vanilla CSS, interface de chat moderne et sobre.
+   Vanilla CSS, modern and understated chat interface.
    ========================================================================== */
 
 :root {
@@ -12,11 +12,11 @@
   --bg-hover: #232733;
   --bg-user-bubble: #232a3d;
 
-  /* Bordures */
+  /* Borders */
   --border: rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.14);
 
-  /* Texte */
+  /* Text */
   --text-primary: #e9eaf0;
   --text-secondary: #9498a8;
   --text-tertiary: #686d7d;
@@ -26,12 +26,12 @@
   --accent-hover: #828ef5;
   --accent-soft: rgba(110, 123, 242, 0.14);
 
-  /* États */
+  /* States */
   --error: #f0707a;
   --error-soft: rgba(240, 112, 122, 0.1);
   --success: #4cd2a0;
 
-  /* Mesures */
+  /* Sizes */
   --sidebar-width: 260px;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -140,7 +140,7 @@ textarea {
   color: var(--text-primary);
 }
 
-/* Bouton "Nouvelle conversation" */
+/* "New conversation" button */
 .new-chat-btn {
   display: flex;
   align-items: center;
@@ -167,7 +167,7 @@ textarea {
   transform: scale(0.99);
 }
 
-/* Section statut */
+/* Status section */
 .sidebar-section {
   display: flex;
   flex-direction: column;
@@ -222,7 +222,7 @@ textarea {
   line-height: 1.4;
 }
 
-/* Bouton sync */
+/* Sync button */
 .sync-btn {
   display: flex;
   align-items: center;
@@ -278,7 +278,7 @@ textarea {
   }
 }
 
-/* Footer sidebar */
+/* Sidebar footer */
 .sidebar-footer {
   margin-top: auto;
   padding-top: 0.5rem;
@@ -315,13 +315,13 @@ textarea {
   text-overflow: ellipsis;
 }
 
-/* Overlay mobile */
+/* Mobile overlay */
 .sidebar-overlay {
   display: none;
 }
 
 /* ==========================================================================
-   Header principal
+   Main header
    ========================================================================== */
 
 .main-header {
@@ -346,7 +346,7 @@ textarea {
 }
 
 /* ==========================================================================
-   Zone de messages
+   Message area
    ========================================================================== */
 
 .chat-area {
@@ -364,7 +364,7 @@ textarea {
   gap: 1.5rem;
 }
 
-/* Écran d'accueil */
+/* Welcome screen */
 .welcome {
   margin: auto;
   text-align: center;
@@ -483,7 +483,7 @@ textarea {
   font-size: 0.85rem;
 }
 
-/* Markdown dans les bulles assistant */
+/* Markdown inside assistant bubbles */
 .bubble p {
   margin: 0 0 0.75rem;
 }
@@ -585,7 +585,7 @@ textarea {
   line-height: 1.55;
 }
 
-/* Curseur de streaming */
+/* Streaming cursor */
 .cursor {
   display: inline-block;
   width: 2px;
@@ -605,7 +605,7 @@ textarea {
   }
 }
 
-/* Indicateur "..." */
+/* "..." indicator */
 .typing-indicator {
   display: inline-flex;
   gap: 4px;

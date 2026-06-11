@@ -1,15 +1,15 @@
 # Architecture - AskYourWiki
 
-Ce document décrit le fonctionnement interne de l'application : comment les composants
-s'articulent, comment les données circulent, et les choix de conception importants.
+This document describes the internal workings of the application: how the components fit
+together, how data flows, and the important design decisions.
 
-## Vue d'ensemble
+## Overview
 
 ```
 ┌─────────────┐      ┌──────────────────────────────────────────────┐      ┌─────────────┐
 │   GitLab     │◄────►│              FastAPI (main.py)                │◄────►│  LLM backend │
-│ (projets &   │ REST │                                                │ API  │ (vLLM /      │
-│  groupes,    │      │  ┌────────────┐  ┌────────────┐  ┌──────────┐ │      │  Anthropic)  │
+│ (projects &  │ REST │                                                │ API  │ (vLLM /      │
+│  groups,     │      │  ┌────────────┐  ┌────────────┐  ┌──────────┐ │      │  Anthropic)  │
 │  wikis)      │      │  │ SyncManager│  │ WikiStore  │  │ context/ │ │      └─────────────┘
 └─────────────┘      │  │(gitlab/sync│  │(storage/   │  │  chat    │ │
                       │  │   .py)     │  │wiki_store) │  │ (chat/)  │ │
@@ -20,238 +20,233 @@ s'articulent, comment les données circulent, et les choix de conception importa
                                             │ HTTP (SSE)
                                             ▼
                                   ┌────────────────────┐
-                                  │  static/ (UI web)   │
+                                  │  static/ (web UI)   │
                                   │ index.html / app.js │
                                   └────────────────────┘
 ```
 
-L'application a deux flux principaux :
+The application has two main flows:
 
-1. **Flux de synchronisation** : GitLab → `gitlab/client.py` → `gitlab/sync.py` →
-   `storage/wiki_store.py` → fichiers markdown dans `data/wikis/`.
-2. **Flux de chat** : navigateur → `POST /api/chat` → `chat/context.py` (lit
-   `data/wikis/`) → backend LLM (`chat/vllm.py` ou `chat/anthropic_chat.py`, appel en
-   streaming) → SSE → navigateur.
+1. **Synchronization flow**: GitLab → `gitlab/client.py` → `gitlab/sync.py` →
+   `storage/wiki_store.py` → markdown files in `data/wikis/`.
+2. **Chat flow**: browser → `POST /api/chat` → `chat/context.py` (reads
+   `data/wikis/`) → LLM backend (`chat/vllm.py` or `chat/anthropic_chat.py`, called with
+   streaming) → SSE → browser.
 
 ## Configuration (`config.py`)
 
-Point d'entrée unique pour toutes les variables d'environnement (chargées via `python-dotenv`
-depuis `.env`). Expose un objet singleton `config` utilisé par tous les modules :
+Single entry point for all environment variables (loaded via `python-dotenv` from `.env`).
+Exposes a singleton `config` object used by every module:
 
-- `GITLAB_URL`, `GITLAB_TOKEN` : accès à l'instance GitLab
-- `GITLAB_PROJECT_IDS`, `GITLAB_GROUP_IDS` : listes d'IDs (parsées depuis des chaînes
-  `"123,456"`), scopes à synchroniser
-- `LLM_PROVIDER` : backend LLM utilisé (`vllm` par défaut, ou `anthropic`)
-- `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY` : accès au modèle auto-hébergé compatible OpenAI
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` : accès à l'API hébergée Anthropic (si `LLM_PROVIDER=anthropic`)
-- `SYNC_INTERVAL_MINUTES` : fréquence du job de sync planifié
-- `MAX_CONTEXT_TOKENS` (150 000 par défaut) : budget de tokens pour le contexte envoyé au modèle
-- `MAX_HISTORY_MESSAGES` (5 par défaut) : nombre d'échanges d'historique conservés
-- `DATA_DIR` : `data/wikis/`, racine du stockage local
+- `GITLAB_URL`, `GITLAB_TOKEN`: access to the GitLab instance
+- `GITLAB_PROJECT_IDS`, `GITLAB_GROUP_IDS`: lists of IDs (parsed from `"123,456"` strings),
+  scopes to synchronize
+- `LLM_PROVIDER`: LLM backend used (`vllm` by default, or `anthropic`)
+- `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY`: access to the OpenAI-compatible self-hosted model
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`: access to the hosted Anthropic API (if `LLM_PROVIDER=anthropic`)
+- `SYNC_INTERVAL_MINUTES`: frequency of the scheduled sync job
+- `MAX_CONTEXT_TOKENS` (150,000 by default): token budget for the context sent to the model
+- `MAX_HISTORY_MESSAGES` (5 by default): number of history exchanges kept
+- `DATA_DIR`: `data/wikis/`, root of local storage
 
-`Config.validate()` retourne une liste d'avertissements (config manquante) loggés au démarrage,
-sans bloquer le lancement de l'application (permet de démarrer même sans config GitLab pour
-tester l'UI, par ex.).
+`Config.validate()` returns a list of warnings (missing config) logged at startup, without
+blocking the application from starting (allows starting even without GitLab config, e.g. to
+test the UI).
 
-## Synchronisation des wikis
+## Wiki synchronization
 
 ### `gitlab/client.py` — `GitLabClient`
 
-Client HTTP asynchrone (httpx) autour de l'API REST GitLab v4.
+Asynchronous HTTP client (httpx) wrapping the GitLab REST API v4.
 
-- Toutes les requêtes passent par `_get()`, qui traduit les codes HTTP en exceptions
-  métier : `GitLabAuthError` (401), `GitLabNotFoundError` (404 — projet/groupe/wiki
-  inaccessible ou désactivé), `GitLabAPIError` (autres erreurs / erreurs réseau).
-- `_get_paginated()` suit l'en-tête `X-Next-Page` pour récupérer toutes les pages d'une
-  ressource paginée (100 éléments par page).
-- `get_project_wiki_pages(project_id)` / `get_group_wiki_pages(group_id)` appellent
-  respectivement `GET /projects/:id/wikis` et `GET /groups/:id/wikis` avec
-  `with_content=1` (le contenu markdown est donc récupéré en une seule passe). Si le wiki
-  est désactivé ou absent (404), la méthode retourne une liste vide plutôt que de planter.
+- All requests go through `_get()`, which translates HTTP status codes into domain
+  exceptions: `GitLabAuthError` (401), `GitLabNotFoundError` (404 — project/group/wiki
+  inaccessible or disabled), `GitLabAPIError` (other errors / network errors).
+- `_get_paginated()` follows the `X-Next-Page` header to fetch all pages of a paginated
+  resource (100 items per page).
+- `get_project_wiki_pages(project_id)` / `get_group_wiki_pages(group_id)` call
+  `GET /projects/:id/wikis` and `GET /groups/:id/wikis` respectively, with
+  `with_content=1` (so the markdown content is fetched in a single pass). If the wiki is
+  disabled or missing (404), the method returns an empty list instead of raising.
 
 ### `gitlab/sync.py` — `SyncManager`
 
-Orchestre la synchronisation et conserve l'état (`last_sync_at`, `last_sync_errors`,
-`is_syncing`) consulté par `/api/status`.
+Orchestrates synchronization and keeps state (`last_sync_at`, `last_sync_errors`,
+`is_syncing`) consumed by `/api/status`.
 
-- `sync_all()` : pour chaque projet (`GITLAB_PROJECT_IDS`) puis chaque groupe
-  (`GITLAB_GROUP_IDS`), appelle `_sync_scope()`. Un verrou (`is_syncing`) empêche les
-  exécutions concurrentes (si une sync planifiée et une sync manuelle se chevauchent, la
-  seconde est ignorée et renvoie le statut courant).
-- `_sync_scope(client, scope_type, scope_id)` : récupère les pages via le client, puis
-  **remplace intégralement** le contenu local du scope (`store.reset_scope()` supprime le
-  dossier puis chaque page est réécrite via `store.save_page()`). Les erreurs par scope
-  sont catchées et accumulées dans `last_sync_errors` sans interrompre la synchronisation
-  des autres scopes.
+- `sync_all()`: for each project (`GITLAB_PROJECT_IDS`) then each group
+  (`GITLAB_GROUP_IDS`), calls `_sync_scope()`. A lock (`is_syncing`) prevents concurrent
+  runs (if a scheduled sync and a manual sync overlap, the second one is ignored and
+  returns the current status).
+- `_sync_scope(client, scope_type, scope_id)`: fetches the pages via the client, then
+  **fully replaces** the scope's local content (`store.reset_scope()` removes the
+  directory, then each page is rewritten via `store.save_page()`). Per-scope errors are
+  caught and accumulated in `last_sync_errors` without interrupting synchronization of the
+  other scopes.
 
-> **Pourquoi une resync complète et pas incrémentale ?** L'API GitLab `/wikis` ne renvoie
-> aucune date de dernière modification par page. Il n'y a donc aucun moyen fiable de savoir
-> quelles pages ont changé sans tout retélécharger. Une resync complète par scope reste peu
-> coûteuse (les wikis sont rarement volumineux) et garantit que les pages supprimées côté
-> GitLab disparaissent aussi du stockage local.
+> **Why a full resync instead of incremental?** The GitLab `/wikis` API returns no
+> last-modified date per page. There is therefore no reliable way to know which pages
+> changed without re-downloading everything. A full resync per scope remains cheap (wikis
+> are rarely large) and guarantees that pages deleted on the GitLab side also disappear
+> from local storage.
 
 ### `storage/wiki_store.py` — `WikiStore`
 
-Couche de persistance fichier, sans base de données.
+File-based persistence layer, no database.
 
-- Arborescence : `data/wikis/{scope_type}_{scope_id}/{slug}.md` (les `/` dans les slugs
-  imbriqués sont remplacés par `__`).
-- Chaque fichier contient un frontmatter simple (`---` ... `---`) avec `title`, `slug`,
-  `scope_type`, `scope_id`, `format`, `synced_at`, suivi du contenu markdown brut de la page.
-- `load_all_pages()` relit tout le dossier, parse le frontmatter, et retourne une liste de
-  `WikiPage` **triée par `synced_at` décroissant** (pages les plus récemment synchronisées
-  en premier) — cet ordre est ensuite exploité pour la troncature du contexte.
-- `count_pages()` / `reset_scope()` sont des utilitaires pour le statut et la resync.
+- Layout: `data/wikis/{scope_type}_{scope_id}/{slug}.md` (`/` in nested slugs are replaced
+  with `__`).
+- Each file contains a simple frontmatter block (`---` ... `---`) with `title`, `slug`,
+  `scope_type`, `scope_id`, `format`, `synced_at`, followed by the page's raw markdown
+  content.
+- `load_all_pages()` reads back the whole directory, parses the frontmatter, and returns a
+  list of `WikiPage` **sorted by `synced_at` descending** (most recently synced pages
+  first) — this order is later used for context truncation.
+- `count_pages()` / `reset_scope()` are utilities for status and resync.
 
-## Chat avec le modèle LLM
+## Chat with the LLM
 
 ### `chat/context.py` — `build_context()`
 
-Construit le texte qui sera injecté dans le system prompt du modèle.
+Builds the text that will be injected into the model's system prompt.
 
-- Charge toutes les pages via `WikiStore.load_all_pages()` (déjà triées, plus récentes
-  d'abord).
-- Formate chaque page en section markdown : `### {title} (scope: ..., slug: ...)` suivi du
-  contenu.
-- Additionne les sections tant que la taille cumulée (en caractères) reste sous
-  `MAX_CONTEXT_TOKENS * 4` (heuristique ~4 caractères/token). Dès que l'ajout d'une page
-  dépasserait le budget, on s'arrête : les pages les plus anciennes sont donc celles
-  exclues en premier (priorité aux pages récentes, comme demandé dans le cahier des
-  charges).
-- Cas limite : si même la première page dépasse le budget à elle seule, elle est tronquée
-  brutalement à `max_chars` caractères.
-- Retourne un objet `WikiContext` (`text`, `pages_included`, `pages_total`, `truncated`)
-  pour le logging/diagnostic.
+- Loads all pages via `WikiStore.load_all_pages()` (already sorted, most recent first).
+- Formats each page as a markdown section: `### {title} (scope: ..., slug: ...)` followed by
+  the content.
+- Accumulates sections as long as the cumulative size (in characters) stays under
+  `MAX_CONTEXT_TOKENS * 4` (heuristic of ~4 characters/token). As soon as adding a page
+  would exceed the budget, it stops: the oldest pages are therefore the first to be
+  excluded (priority to recent pages, as required by the spec).
+- Edge case: if even the first page alone exceeds the budget, it is hard-truncated to
+  `max_chars` characters.
+- Returns a `WikiContext` object (`text`, `pages_included`, `pages_total`, `truncated`) for
+  logging/diagnostics.
 
-### `chat/base.py` — `BaseChat` et backends interchangeables
+### `chat/base.py` — `BaseChat` and interchangeable backends
 
-Le moteur de génération est **pluggable** via `LLM_PROVIDER` (`vllm` ou `anthropic`).
-`BaseChat` factorise ce qui est commun aux deux backends :
+The generation engine is **pluggable** via `LLM_PROVIDER` (`vllm` or `anthropic`).
+`BaseChat` factors out what is common to both backends:
 
-- `SYSTEM_PROMPT_TEMPLATE` : instruit le modèle de répondre **uniquement** à partir du
-  contexte wiki fourni, de dire explicitement quand l'information est absente, et de
-  répondre dans la langue de la question. Le contexte produit par `build_context()` est
-  injecté directement dans ce template.
-- `_build_messages()` : tronque l'historique reçu du frontend aux `MAX_HISTORY_MESSAGES`
-  derniers échanges (× 2 messages par échange = user + assistant), puis ajoute le nouveau
-  message utilisateur.
-- `stream_response(message, history, context_text)` : générateur asynchrone qui `yield`
-  chaque fragment de texte de la réponse — c'est l'interface implémentée par chaque backend
-  et consommée directement par l'endpoint FastAPI.
+- `SYSTEM_PROMPT_TEMPLATE`: instructs the model to answer **only** from the provided wiki
+  context, to explicitly say when information is missing, and to answer in the language of
+  the question. The context produced by `build_context()` is injected directly into this
+  template.
+- `_build_messages()`: trims the history received from the frontend to the last
+  `MAX_HISTORY_MESSAGES` exchanges (× 2 messages per exchange = user + assistant), then
+  appends the new user message.
+- `stream_response(message, history, context_text)`: an async generator that `yield`s each
+  text fragment of the response — this is the interface implemented by each backend and
+  consumed directly by the FastAPI endpoint.
 
-#### `chat/vllm.py` — `VLLMChat` (backend par défaut, modèle auto-hébergé)
+#### `chat/vllm.py` — `VLLMChat` (default backend, self-hosted model)
 
-Utilise le SDK `openai` (`AsyncOpenAI`) pointé vers `VLLM_BASE_URL` (l'endpoint
-`/v1/chat/completions` compatible OpenAI exposé par vLLM ou tout serveur équivalent). Le
-system prompt est passé comme premier message `role: "system"` dans la liste `messages`.
-`stream_response()` consomme le flux `chat.completions.create(..., stream=True)` et yield
-`chunk.choices[0].delta.content` à chaque itération. En cas d'erreur API, un message d'erreur
-est yield comme texte plutôt que de lever une exception, pour que le flux SSE se termine
-proprement côté client.
+Uses the `openai` SDK (`AsyncOpenAI`) pointed at `VLLM_BASE_URL` (the OpenAI-compatible
+`/v1/chat/completions` endpoint exposed by vLLM or any equivalent server). The system
+prompt is passed as the first `role: "system"` message in the `messages` list.
+`stream_response()` consumes the `chat.completions.create(..., stream=True)` stream and
+yields `chunk.choices[0].delta.content` on each iteration. On API error, an error message
+is yielded as text rather than raising, so the SSE stream ends cleanly on the client side.
 
-#### `chat/anthropic_chat.py` — `AnthropicChat` (API hébergée, optionnel)
+#### `chat/anthropic_chat.py` — `AnthropicChat` (hosted API, optional)
 
-Utilise le SDK officiel `anthropic` (`AsyncAnthropic`). `stream_response()` appelle
-`client.messages.stream(...)` avec le modèle configuré (`ANTHROPIC_MODEL`, system prompt +
-messages), et relaie `stream.text_stream`. Mêmes garanties d'erreur que `VLLMChat` (message
-d'erreur yield plutôt qu'exception).
+Uses the official `anthropic` SDK (`AsyncAnthropic`). `stream_response()` calls
+`client.messages.stream(...)` with the configured model (`ANTHROPIC_MODEL`, system prompt +
+messages), and relays `stream.text_stream`. Same error guarantees as `VLLMChat` (error
+message yielded rather than raised as an exception).
 
-#### Sélection du backend (`main.py`)
+#### Backend selection (`main.py`)
 
-`_build_chat_client()` lit `config.LLM_PROVIDER` et instancie `VLLMChat` ou `AnthropicChat` en
-conséquence (ou retourne `None` si la configuration requise est manquante, auquel cas
-`/api/chat` répond 503). Le reste de l'application (sync, contexte, UI, streaming SSE) est
-strictement identique quel que soit le backend choisi.
+`_build_chat_client()` reads `config.LLM_PROVIDER` and instantiates `VLLMChat` or
+`AnthropicChat` accordingly (or returns `None` if the required configuration is missing, in
+which case `/api/chat` responds with 503). The rest of the application (sync, context, UI,
+SSE streaming) is strictly identical regardless of the chosen backend.
 
-## API FastAPI (`main.py`)
+## FastAPI API (`main.py`)
 
-Au chargement du module :
-- Instancie `WikiStore`, `SyncManager`, `AsyncIOScheduler`, et le `chat_client` correspondant
-  à `LLM_PROVIDER` via `_build_chat_client()` (si la configuration requise est manquante,
-  `chat_client` vaut `None` et `/api/chat` répondra 503).
+At module load time:
+- Instantiates `WikiStore`, `SyncManager`, `AsyncIOScheduler`, and the `chat_client`
+  corresponding to `LLM_PROVIDER` via `_build_chat_client()` (if the required configuration
+  is missing, `chat_client` is `None` and `/api/chat` will respond with 503).
 
-`lifespan` (cycle de vie de l'app) :
-1. Log les avertissements de config manquante.
-2. Si des projets/groupes sont configurés : lance une **synchronisation initiale
-   bloquante** (`await sync_manager.sync_all()`) avant que le serveur n'accepte du trafic,
-   puis programme `sync_manager.sync_all` en job récurrent (`SYNC_INTERVAL_MINUTES`) via
-   APScheduler.
-3. Sinon : log un avertissement, aucune sync n'est programmée.
-4. À l'arrêt : arrête proprement le scheduler.
+`lifespan` (app lifecycle):
+1. Logs warnings for missing configuration.
+2. If projects/groups are configured: runs an **initial blocking synchronization**
+   (`await sync_manager.sync_all()`) before the server accepts traffic, then schedules
+   `sync_manager.sync_all` as a recurring job (`SYNC_INTERVAL_MINUTES`) via APScheduler.
+3. Otherwise: logs a warning, no sync is scheduled.
+4. On shutdown: cleanly stops the scheduler.
 
-Routes :
+Routes:
 
-| Route | Comportement |
+| Route | Behavior |
 |---|---|
-| `GET /` | Sert `static/index.html` |
-| `GET /static/*` | Fichiers statiques (CSS/JS) via `StaticFiles` |
-| `POST /api/sync` | Déclenche `sync_manager.sync_all()` (400 si aucun scope configuré) et retourne le statut résultant |
-| `GET /api/status` | Retourne `sync_manager.status()` : nb de pages indexées, dernière sync, erreurs, scopes configurés |
-| `POST /api/chat` | Voir ci-dessous |
+| `GET /` | Serves `static/index.html` |
+| `GET /static/*` | Static files (CSS/JS) via `StaticFiles` |
+| `POST /api/sync` | Triggers `sync_manager.sync_all()` (400 if no scope configured) and returns the resulting status |
+| `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes |
+| `POST /api/chat` | See below |
 
-### `POST /api/chat` en détail
+### `POST /api/chat` in detail
 
-1. Lit `{message, history}` du body JSON. 503 si aucun backend LLM n'est configuré, 400 si
-   message vide.
-2. Construit le contexte wiki via `build_context(store, config.MAX_CONTEXT_TOKENS)` —
-   **rechargé à chaque requête** (donc reflète immédiatement la dernière synchronisation).
-3. Retourne une `StreamingResponse` (`text/event-stream`) qui :
-   - itère sur `chat_client.stream_response(message, history, context.text)`,
-   - émet chaque fragment sous la forme `data: {"delta": "..."}\n\n`,
-   - émet `data: {"error": "..."}\n\n` en cas d'exception,
-   - termine toujours par `data: [DONE]\n\n`.
+1. Reads `{message, history}` from the JSON body. 503 if no LLM backend is configured, 400
+   if the message is empty.
+2. Builds the wiki context via `build_context(store, config.MAX_CONTEXT_TOKENS)` —
+   **reloaded on every request** (so it immediately reflects the latest synchronization).
+3. Returns a `StreamingResponse` (`text/event-stream`) that:
+   - iterates over `chat_client.stream_response(message, history, context.text)`,
+   - emits each fragment as `data: {"delta": "..."}\n\n`,
+   - emits `data: {"error": "..."}\n\n` on exception,
+   - always ends with `data: [DONE]\n\n`.
 
-## Interface web (`static/`)
+## Web interface (`static/`)
 
-- **`index.html`** : structure (barre de statut + bouton sync, zone de messages,
-  textarea + bouton envoyer). Charge `marked.js` via CDN pour le rendu markdown.
-- **`style.css`** : thème dark mode (variables CSS `--bg`, `--accent`, etc.), bulles de
-  chat différenciées user/assistant/erreur, indicateur de saisie animé.
-- **`app.js`** :
-  - `sendMessage()` : ajoute le message utilisateur à l'historique local (`history`),
-    envoie `POST /api/chat`, lit la réponse via `response.body.getReader()` (le SSE est
-    parsé manuellement car `EventSource` ne supporte pas POST), accumule les `delta` et
-    re-render le markdown progressivement dans la bulle assistant.
-  - `refreshStatus()` : interroge `/api/status` toutes les 30 s et affiche
-    "X pages indexées · dernière sync il y a N minutes".
-  - `triggerSync()` : appelle `POST /api/sync`, désactive le bouton pendant l'opération et
-    affiche le résultat (nombre de pages) avant de revenir à l'état initial.
+- **`index.html`**: structure (status bar + sync button, message area, textarea + send
+  button). Loads `marked.js` via CDN for markdown rendering.
+- **`style.css`**: dark mode theme (CSS variables `--bg`, `--accent`, etc.), chat bubbles
+  styled differently for user/assistant/error, animated typing indicator.
+- **`app.js`**:
+  - `sendMessage()`: appends the user message to local history (`conversationHistory`),
+    sends `POST /api/chat`, reads the response via `response.body.getReader()` (SSE is
+    parsed manually since `EventSource` doesn't support POST), accumulates the `delta`
+    chunks and progressively re-renders the markdown in the assistant bubble.
+  - `refreshStatus()`: polls `/api/status` every 30s and displays
+    "X indexed pages · last synced N minutes ago".
+  - `triggerSync()`: calls `POST /api/sync`, disables the button during the operation and
+    shows the result (number of pages) before reverting to the initial state.
 
-## Synchronisation des données : ordre des opérations
+## Data synchronization: order of operations
 
 ```
-Démarrage de l'app
+App startup
    │
-   ├─► sync_all() (bloquant)
-   │      ├─► pour chaque projet : reset_scope + save_page(s)
-   │      └─► pour chaque groupe : reset_scope + save_page(s)
+   ├─► sync_all() (blocking)
+   │      ├─► for each project: reset_scope + save_page(s)
+   │      └─► for each group: reset_scope + save_page(s)
    │
-   ├─► scheduler.start()  (rejoue sync_all() toutes les SYNC_INTERVAL_MINUTES)
+   ├─► scheduler.start()  (replays sync_all() every SYNC_INTERVAL_MINUTES)
    │
-   └─► serveur accepte les requêtes
+   └─► server accepts requests
 
-Requête /api/chat
+/api/chat request
    │
-   ├─► build_context()  ← lit data/wikis/**/*.md (état courant, post-dernière sync)
+   ├─► build_context()  ← reads data/wikis/**/*.md (current state, post-last sync)
    ├─► chat_client.stream_response(message, history, context)
-   └─► SSE → navigateur (rendu progressif)
+   └─► SSE → browser (progressive rendering)
 
-Requête /api/sync (manuel, ou bouton UI)
-   └─► sync_all() (même logique que le démarrage)
+/api/sync request (manual, or UI button)
+   └─► sync_all() (same logic as startup)
 ```
 
-## Choix de conception notables
+## Notable design decisions
 
-- **Pas de base de données** : le stockage fichier markdown est suffisant pour le volume
-  attendu (wikis de quelques projets/groupes) et a l'avantage d'être directement
-  inspectable/versionnable.
-- **Resync complète par scope** plutôt qu'incrémentale (cf. limitation de l'API GitLab,
-  voir README).
-- **Contexte rechargé à chaque message** plutôt que mis en cache : garantit la fraîcheur
-  des réponses après une sync, au prix d'une lecture disque par requête (négligeable vu le
-  volume de données).
-- **Heuristique de tokens (4 car./token)** plutôt qu'un tokenizer exact : suffisant pour
-  rester sous la limite de contexte avec une marge de sécurité, sans dépendance
-  supplémentaire.
-- **Streaming de bout en bout** (modèle LLM → SSE → fetch reader → DOM) pour un retour visuel
-  immédiat, conformément au cahier des charges.
+- **No database**: markdown file storage is sufficient for the expected volume (wikis of a
+  few projects/groups) and has the advantage of being directly inspectable/version-controllable.
+- **Full resync per scope** rather than incremental (see GitLab API limitation in the
+  README).
+- **Context reloaded on every message** rather than cached: guarantees freshness of
+  responses after a sync, at the cost of one disk read per request (negligible given the
+  data volume).
+- **Token heuristic (4 chars/token)** rather than an exact tokenizer: sufficient to stay
+  under the context limit with a safety margin, without an extra dependency.
+- **End-to-end streaming** (LLM model → SSE → fetch reader → DOM) for immediate visual
+  feedback, as required by the spec.

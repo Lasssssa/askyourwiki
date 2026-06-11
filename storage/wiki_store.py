@@ -1,4 +1,4 @@
-"""Lecture/écriture des pages de wiki en local au format markdown avec métadonnées."""
+"""Reading/writing wiki pages locally in markdown format with metadata."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _FRONTMATTER_DELIM = "---"
 class WikiPage:
     title: str
     slug: str
-    scope_type: str  # "project" ou "group"
+    scope_type: str  # "project" or "group"
     scope_id: int
     content: str
     format: str
@@ -31,7 +31,7 @@ def _scope_dir(data_dir: Path, scope_type: str, scope_id: int) -> Path:
 
 
 def _slug_to_filename(slug: str) -> str:
-    """Les slugs GitLab peuvent contenir des '/' (pages imbriquées) -> on les remplace."""
+    """GitLab slugs can contain '/' (nested pages) -> replace them."""
     return slug.replace("/", "__") + ".md"
 
 
@@ -63,14 +63,14 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 
 class WikiStore:
-    """Gère la persistance des pages de wiki sur disque."""
+    """Manages persistence of wiki pages on disk."""
 
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def reset_scope(self, scope_type: str, scope_id: int) -> None:
-        """Supprime toutes les pages déjà synchronisées pour ce scope (avant une re-sync complète)."""
+        """Removes all pages already synced for this scope (before a full re-sync)."""
         scope_dir = _scope_dir(self.data_dir, scope_type, scope_id)
         if scope_dir.exists():
             shutil.rmtree(scope_dir)
@@ -102,7 +102,7 @@ class WikiStore:
         return file_path
 
     def load_all_pages(self) -> list[WikiPage]:
-        """Charge toutes les pages stockées localement, triées par date de synchro (plus récentes d'abord)."""
+        """Loads all locally stored pages, sorted by sync date (most recent first)."""
         pages: list[WikiPage] = []
 
         if not self.data_dir.exists():
@@ -115,7 +115,7 @@ class WikiStore:
                 try:
                     text = md_file.read_text(encoding="utf-8")
                 except OSError as exc:
-                    logger.warning("Impossible de lire %s: %s", md_file, exc)
+                    logger.warning("Could not read %s: %s", md_file, exc)
                     continue
 
                 meta, body = _parse_frontmatter(text)

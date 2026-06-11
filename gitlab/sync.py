@@ -1,4 +1,4 @@
-"""Synchronisation des wikis GitLab (projets et groupes) vers le stockage local."""
+"""Synchronization of GitLab wikis (projects and groups) to local storage."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class SyncManager:
-    """Orchestre la synchronisation des wikis GitLab vers le `WikiStore`."""
+    """Orchestrates synchronization of GitLab wikis to the `WikiStore`."""
 
     def __init__(self, config: Config, store: WikiStore) -> None:
         self.config = config
@@ -24,14 +24,14 @@ class SyncManager:
         self.is_syncing: bool = False
 
     async def sync_all(self) -> dict[str, Any]:
-        """Resynchronise intégralement les wikis de tous les projets/groupes configurés.
+        """Fully resynchronizes the wikis of all configured projects/groups.
 
-        Note: l'API GitLab "wikis" ne fournit pas de date de dernière modification par
-        page, on ne peut donc pas faire de synchro réellement incrémentale page par page.
-        Chaque scope (projet/groupe) est entièrement re-téléchargé puis remplacé localement.
+        Note: the GitLab "wikis" API does not provide a last-modified date per
+        page, so a truly incremental per-page sync isn't possible. Each scope
+        (project/group) is fully re-downloaded and then replaced locally.
         """
         if self.is_syncing:
-            logger.info("Synchronisation déjà en cours, requête ignorée.")
+            logger.info("Synchronization already in progress, request ignored.")
             return self.status()
 
         self.is_syncing = True
@@ -46,14 +46,14 @@ class SyncManager:
                 for group_id in self.config.GITLAB_GROUP_IDS:
                     pages_synced += await self._sync_scope(client, "group", group_id)
         except GitLabAPIError as exc:
-            logger.error("Erreur fatale lors de la synchronisation: %s", exc)
+            logger.error("Fatal error during synchronization: %s", exc)
             self.last_sync_errors.append(str(exc))
         finally:
             self.is_syncing = False
 
         self.last_sync_at = datetime.now(timezone.utc).isoformat()
         logger.info(
-            "Synchronisation terminée: %d page(s) synchronisée(s), %d erreur(s).",
+            "Synchronization finished: %d page(s) synced, %d error(s).",
             pages_synced,
             len(self.last_sync_errors),
         )
@@ -67,12 +67,12 @@ class SyncManager:
                 pages = await client.get_group_wiki_pages(scope_id)
         except GitLabAPIError as exc:
             message = f"{scope_type} {scope_id}: {exc}"
-            logger.error("Échec de synchronisation pour %s", message)
+            logger.error("Synchronization failed for %s", message)
             self.last_sync_errors.append(message)
             return 0
 
         if not pages:
-            logger.info("Aucune page de wiki trouvée pour %s %s.", scope_type, scope_id)
+            logger.info("No wiki pages found for %s %s.", scope_type, scope_id)
             return 0
 
         self.store.reset_scope(scope_type, scope_id)
@@ -86,7 +86,7 @@ class SyncManager:
                 page_format=page.get("format", "markdown"),
             )
 
-        logger.info("%d page(s) synchronisée(s) pour %s %s.", len(pages), scope_type, scope_id)
+        logger.info("%d page(s) synced for %s %s.", len(pages), scope_type, scope_id)
         return len(pages)
 
     def status(self) -> dict[str, Any]:

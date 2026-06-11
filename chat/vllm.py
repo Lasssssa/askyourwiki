@@ -1,4 +1,4 @@
-"""Intégration avec un modèle auto-hébergé servi par vLLM (API compatible OpenAI)."""
+"""Integration with a self-hosted model served by vLLM (OpenAI-compatible API)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class VLLMChat(BaseChat):
-    """Encapsule les appels à un serveur vLLM via son endpoint `/v1/chat/completions`."""
+    """Wraps calls to a vLLM server via its `/v1/chat/completions` endpoint."""
 
     def __init__(
         self,
@@ -23,11 +23,11 @@ class VLLMChat(BaseChat):
         max_history_messages: int = 5,
     ) -> None:
         if not base_url:
-            raise ValueError("VLLM_BASE_URL doit être configuré.")
+            raise ValueError("VLLM_BASE_URL must be configured.")
         if not model:
-            raise ValueError("VLLM_MODEL doit être configuré.")
+            raise ValueError("VLLM_MODEL must be configured.")
         super().__init__(model=model, max_history_messages=max_history_messages)
-        # vLLM exige une clé non vide même si elle n'est pas vérifiée par défaut.
+        # vLLM requires a non-empty key even though it isn't checked by default.
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key or "EMPTY")
 
     async def stream_response(
@@ -36,7 +36,7 @@ class VLLMChat(BaseChat):
         history: list[dict[str, str]],
         context_text: str,
     ) -> AsyncIterator[str]:
-        """Génère la réponse du modèle en streaming via l'API "chat completions" compatible OpenAI."""
+        """Streams the model's response via the OpenAI-compatible "chat completions" API."""
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=context_text)
         messages = [{"role": "system", "content": system_prompt}] + self._build_messages(message, history)
 
@@ -54,5 +54,5 @@ class VLLMChat(BaseChat):
                 if delta:
                     yield delta
         except APIError as exc:
-            logger.error("Erreur lors de l'appel au serveur vLLM: %s", exc)
-            yield f"\n\n[Erreur: impossible d'obtenir une réponse du modèle vLLM ({exc})]"
+            logger.error("Error while calling the vLLM server: %s", exc)
+            yield f"\n\n[Error: could not get a response from the vLLM model ({exc})]"
