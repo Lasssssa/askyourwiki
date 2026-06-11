@@ -37,16 +37,17 @@ class Config:
     GITLAB_PROJECT_IDS: list[int] = _parse_id_list(os.getenv("GITLAB_PROJECT_IDS"))
     GITLAB_GROUP_IDS: list[int] = _parse_id_list(os.getenv("GITLAB_GROUP_IDS"))
 
-    # "anthropic" (par défaut) ou "vllm" pour utiliser un modèle auto-hébergé
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+    # "vllm" (par défaut, modèle auto-hébergé compatible OpenAI) ou "anthropic" (API hébergée)
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "vllm").strip().lower()
 
-    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
-
-    # Configuration pour un serveur vLLM exposant une API compatible OpenAI
+    # Configuration pour un serveur vLLM (ou tout autre serveur exposant une API compatible OpenAI)
     VLLM_BASE_URL: str = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
     VLLM_MODEL: str = os.getenv("VLLM_MODEL", "")
     VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
+
+    # Configuration pour l'API hébergée Anthropic (optionnel)
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "")
 
     SYNC_INTERVAL_MINUTES: int = int(os.getenv("SYNC_INTERVAL_MINUTES", "60"))
     APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
@@ -75,8 +76,10 @@ class Config:
         elif cls.LLM_PROVIDER == "anthropic":
             if not cls.ANTHROPIC_API_KEY:
                 warnings.append("ANTHROPIC_API_KEY n'est pas configuré.")
+            if not cls.ANTHROPIC_MODEL:
+                warnings.append("ANTHROPIC_MODEL n'est pas configuré.")
         else:
-            warnings.append(f"LLM_PROVIDER={cls.LLM_PROVIDER!r} inconnu (valeurs valides: 'anthropic', 'vllm').")
+            warnings.append(f"LLM_PROVIDER={cls.LLM_PROVIDER!r} inconnu (valeurs valides: 'vllm', 'anthropic').")
         return warnings
 
 

@@ -11,8 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from chat.anthropic_chat import AnthropicChat
 from chat.base import BaseChat
-from chat.claude import ClaudeChat
 from chat.context import build_context
 from chat.vllm import VLLMChat
 from config import config
@@ -39,10 +39,10 @@ def _build_chat_client() -> BaseChat | None:
         )
 
     if config.LLM_PROVIDER == "anthropic":
-        if not config.ANTHROPIC_API_KEY:
-            logger.warning("ANTHROPIC_API_KEY non configuré: l'endpoint /api/chat sera indisponible.")
+        if not (config.ANTHROPIC_API_KEY and config.ANTHROPIC_MODEL):
+            logger.warning("ANTHROPIC_API_KEY/ANTHROPIC_MODEL non configurés: l'endpoint /api/chat sera indisponible.")
             return None
-        return ClaudeChat(
+        return AnthropicChat(
             api_key=config.ANTHROPIC_API_KEY,
             model=config.ANTHROPIC_MODEL,
             max_history_messages=config.MAX_HISTORY_MESSAGES,
