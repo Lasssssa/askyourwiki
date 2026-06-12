@@ -235,11 +235,18 @@ Routes:
 
 ## Web interface (`static/`)
 
-- **`index.html`**: structure (status bar + sync button, message area, textarea + send
-  button). Loads `marked.js` via CDN for markdown rendering.
-- **`style.css`**: dark mode theme (CSS variables `--bg`, `--accent`, etc.), chat bubbles
-  styled differently for user/assistant/error, animated typing indicator.
-- **`app.js`**:
+- **`index.html`** / **`login.html`**: page structure. `index.html` is the chat UI (status
+  bar + sync button, message area, textarea + send button) and loads `marked.js` via CDN
+  for markdown rendering; `login.html` is the sign-in form shown when authentication is
+  enabled.
+- **`css/base.css`**: shared variables (`--bg-app`, `--accent`, `--brand`, etc.), reset, and
+  a global `[hidden] { display: none !important; }` rule so JS-toggled elements hide
+  correctly regardless of other `display` rules.
+- **`css/chat.css`**: the chat UI — sidebar, message bubbles (styled differently for
+  user/assistant/error), animated typing indicator, composer.
+- **`css/login.css`**: the login page — centered card, pill-shaped inputs matching the
+  chat composer, and the error banner.
+- **`js/app.js`**:
   - `sendMessage()`: appends the user message to local history (`conversationHistory`),
     sends `POST /api/chat`, reads the response via `response.body.getReader()` (SSE is
     parsed manually since `EventSource` doesn't support POST), accumulates the `delta`
@@ -248,6 +255,10 @@ Routes:
     "X indexed pages · last synced N minutes ago".
   - `triggerSync()`: calls `POST /api/sync`, disables the button during the operation and
     shows the result (number of pages) before reverting to the initial state.
+  - The "Log out" button is shown/hidden based on `auth_enabled` from `/api/status` and
+    calls `POST /logout` before redirecting to `/login`.
+- **`js/login.js`**: submits `{username, password}` to `POST /login` as JSON and
+  redirects to `/` on success, or shows the returned error message otherwise.
 
 ## Data synchronization: order of operations
 
