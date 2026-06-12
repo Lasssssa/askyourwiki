@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
+import secrets
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -85,6 +88,30 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="GitLab Wiki Chat", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    """Protects the whole app with HTTP Basic Auth if AUTH_USERNAME/AUTH_PASSWORD are set."""
+    if not (config.AUTH_USERNAME and config.AUTH_PASSWORD):
+        return await call_next(request)
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Basic "):
+        try:
+            decoded = base64.b64decode(auth_header.removeprefix("Basic ")).decode("utf-8")
+            username, _, password = decoded.partition(":")
+        except (binascii.Error, UnicodeDecodeError):
+            username, password = "", ""
+
+        if secrets.compare_digest(username, config.AUTH_USERNAME) and secrets.compare_digest(
+            password, config.AUTH_PASSWORD
+        ):
+            return await call_next(request)
+
+    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="AskYourWiki"'})
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 

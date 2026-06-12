@@ -52,6 +52,10 @@ class Config:
     SYNC_INTERVAL_MINUTES: int = int(os.getenv("SYNC_INTERVAL_MINUTES", "60"))
     APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
 
+    # Optional HTTP Basic Auth for the whole app (disabled unless both are set)
+    AUTH_USERNAME: str = os.getenv("AUTH_USERNAME", "")
+    AUTH_PASSWORD: str = os.getenv("AUTH_PASSWORD", "")
+
     BASE_DIR: Path = Path(__file__).resolve().parent
     DATA_DIR: Path = BASE_DIR / "data" / "wikis"
 
@@ -80,6 +84,8 @@ class Config:
                 warnings.append("ANTHROPIC_MODEL is not configured.")
         else:
             warnings.append(f"Unknown LLM_PROVIDER={cls.LLM_PROVIDER!r} (valid values: 'vllm', 'anthropic').")
+        if bool(cls.AUTH_USERNAME) != bool(cls.AUTH_PASSWORD):
+            warnings.append("AUTH_USERNAME and AUTH_PASSWORD must be set together: authentication is disabled.")
         return warnings
 
 

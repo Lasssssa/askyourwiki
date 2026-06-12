@@ -184,6 +184,15 @@ At module load time:
 3. Otherwise: logs a warning, no sync is scheduled.
 4. On shutdown: cleanly stops the scheduler.
 
+### Authentication middleware
+
+A `@app.middleware("http")` function (`basic_auth`) runs before every request, including
+static files and `/api/*`. If `AUTH_USERNAME` and `AUTH_PASSWORD` are both set, it requires
+a matching `Authorization: Basic ...` header (compared with `secrets.compare_digest` to
+avoid timing attacks) and responds `401` with a `WWW-Authenticate` challenge otherwise. If
+either variable is unset, the middleware is a no-op and the app remains open — this keeps
+the "no `.env` required" Docker quick-start working.
+
 Routes:
 
 | Route | Behavior |

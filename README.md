@@ -18,6 +18,7 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
 - [Running with Docker](#running-with-docker)
 - [OpenAI-compatible self-hosted model (vLLM, etc.)](#openai-compatible-self-hosted-model-vllm-etc)
 - [Hosted API (Anthropic) as an alternative](#hosted-api-anthropic-as-an-alternative)
+- [Authentication](#authentication)
 - [Usage](#usage)
 - [API](#api)
 - [Known limitations](#known-limitations)
@@ -66,6 +67,7 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Hosted API configuration (if `LLM_PROVIDER=anthropic`) |
    | `SYNC_INTERVAL_MINUTES` | Frequency of automatic synchronization (in minutes) |
    | `APP_PORT` | Port the application listens on |
+   | `AUTH_USERNAME` / `AUTH_PASSWORD` | Optional HTTP Basic Auth credentials (see [Authentication](#authentication)) |
 
 ### Finding GitLab project/group IDs
 
@@ -146,6 +148,24 @@ The rest of the application (wiki synchronization, context, interface, streaming
 identically regardless of the chosen engine: only the `chat/` module changes internally
 (`chat/vllm.py` or `chat/anthropic_chat.py`).
 
+## Authentication
+
+The app has no user accounts, but it can be protected with a single shared HTTP Basic Auth
+credential. Set both `AUTH_USERNAME` and `AUTH_PASSWORD` in `.env` to require a login for
+every route (the UI and all `/api/*` endpoints):
+
+```bash
+AUTH_USERNAME=admin
+AUTH_PASSWORD=<a-strong-password>
+```
+
+Leave both empty (the default) to disable authentication entirely. If only one of the two
+is set, the app logs a warning and authentication stays disabled.
+
+> This is a single shared credential, not per-user accounts — suitable for personal or
+> small-team use. For multi-user access control, put the app behind your own
+> reverse proxy / SSO, or run it on a private network / VPN.
+
 ## Usage
 
 - Ask your questions in the chat area: answers are generated from the content of the
@@ -171,8 +191,9 @@ identically regardless of the chosen engine: only the `chat/` module changes int
   (~4 characters per token), not an exact count from the model's tokenizer.
 - Wiki pages in formats other than Markdown (e.g. AsciiDoc, RDoc) are stored as-is; their
   rendering in the context sent to the model is not converted to markdown.
-- No authentication is implemented on the web interface: deploy it behind a reverse proxy /
-  VPN if the instance is not meant for public access.
+- Authentication is a single shared HTTP Basic Auth credential (no per-user accounts). If
+  it's not configured, deploy the app behind a reverse proxy / VPN if it shouldn't be
+  publicly accessible.
 
 ## Architecture
 
