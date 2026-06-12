@@ -14,17 +14,6 @@ env: ## Create the .env file from .env.example (if missing)
 	@test -f .env || cp .env.example .env
 	@echo "-> .env ready. Remember to edit the variables (GITLAB_*, LLM_PROVIDER, VLLM_* / ANTHROPIC_*, ...)."
 
-install: env ## Create the virtual environment and install dependencies
-	python3 -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
-
-run: ## Start the server (production-like, no reload)
-	$(PYTHON) -m uvicorn main:app --host 0.0.0.0 --port $(PORT)
-
-dev: ## Start the server in development mode (auto-reload)
-	$(PYTHON) -m uvicorn main:app --host 0.0.0.0 --port $(PORT) --reload
-
 sync: ## Trigger a manual wiki synchronization
 	curl -s -X POST http://localhost:$(PORT)/api/sync | python3 -m json.tool
 
