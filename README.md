@@ -82,6 +82,12 @@ projects/groups are configured), then a periodic synchronization is scheduled ev
 docker compose up --build
 ```
 
+That's it — a single command builds the image and starts the app, available at
+http://localhost:8000. The `.env` file is optional: without it the app starts with no
+GitLab/LLM configuration (and logs warnings), which is enough to check that everything
+runs. To enable synchronization and chat, create a `.env` from `.env.example` (see
+[Configuration](#configuration-env)) before running the command above.
+
 Synchronized wiki pages are persisted in `./data/wikis` (mounted as a volume).
 
 ## OpenAI-compatible self-hosted model (vLLM, etc.)
