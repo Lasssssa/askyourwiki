@@ -1,0 +1,146 @@
+/* ==========================================================================
+   AskYourWiki — Login page
+   ========================================================================== */
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1.5rem;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1.1rem;
+  width: 100%;
+  max-width: 360px;
+  padding: 2rem 1.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.login-logo {
+  align-self: center;
+  color: var(--brand);
+  margin-bottom: 0.25rem;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.login-subtitle {
+  margin: -0.6rem 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Inputs, styled like the chat composer's search bar */
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.login-field-input {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.65rem 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-field-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.login-field input {
+  flex: 1;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.login-field input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* Error banner */
+.login-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--error);
+  background: var(--error-soft);
+  border: 1px solid rgba(240, 112, 122, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  animation: login-error-in 0.2s ease both;
+}
+
+.login-error svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--error);
+}
+
+@keyframes login-error-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Submit button, same brand color as the chat's send button */
+.login-submit {
+  margin-top: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: var(--brand);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+
+.login-submit:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.login-submit:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

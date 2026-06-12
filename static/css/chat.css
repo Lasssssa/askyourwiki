@@ -1,66 +1,7 @@
 /* ==========================================================================
-   AskYourWiki — Dark UI
-   Vanilla CSS, modern and understated chat interface.
+   AskYourWiki — Chat page
+   Sidebar, message area, and composer.
    ========================================================================== */
-
-:root {
-  /* Surfaces */
-  --bg-app: #0f1117;
-  --bg-sidebar: #15171f;
-  --bg-elevated: #1a1d27;
-  --bg-input: #1e212c;
-  --bg-hover: #232733;
-  --bg-user-bubble: #232a3d;
-
-  /* Borders */
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
-
-  /* Text */
-  --text-primary: #e9eaf0;
-  --text-secondary: #9498a8;
-  --text-tertiary: #686d7d;
-
-  /* Accent */
-  --accent: #6e7bf2;
-  --accent-hover: #828ef5;
-  --accent-soft: rgba(110, 123, 242, 0.14);
-
-  /* States */
-  --error: #f0707a;
-  --error-soft: rgba(240, 112, 122, 0.1);
-  --success: #4cd2a0;
-
-  /* Sizes */
-  --sidebar-width: 260px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --content-width: 760px;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg-app);
-  color: var(--text-primary);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-button,
-textarea {
-  font-family: inherit;
-}
 
 /* ==========================================================================
    Layout
@@ -114,7 +55,7 @@ textarea {
 
 .brand-logo {
   flex-shrink: 0;
-  color: #fc6d26;
+  color: var(--brand);
 }
 
 .sidebar-close {
@@ -283,6 +224,9 @@ textarea {
   margin-top: auto;
   padding-top: 0.5rem;
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .gitlab-link {
@@ -306,7 +250,7 @@ textarea {
 
 .gitlab-link svg {
   flex-shrink: 0;
-  color: #fc6d26;
+  color: var(--brand);
 }
 
 #gitlab-link-text {
@@ -315,12 +259,28 @@ textarea {
   text-overflow: ellipsis;
 }
 
+/* Logout button */
 .logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   width: 100%;
-  border: none;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
   background: transparent;
-  font-family: inherit;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.logout-btn:hover {
+  background: var(--error-soft);
+  color: var(--error);
+  border-color: rgba(240, 112, 122, 0.35);
 }
 
 /* Mobile overlay */
@@ -703,14 +663,14 @@ textarea {
   height: 34px;
   border-radius: var(--radius-md);
   border: none;
-  background: #fc6d26;
+  background: var(--brand);
   color: #fff;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: #e24329;
+  background: var(--brand-hover);
 }
 
 .send-btn:active:not(:disabled) {
@@ -728,130 +688,6 @@ textarea {
   font-size: 0.7rem;
   color: var(--text-tertiary);
   text-align: center;
-}
-
-/* ==========================================================================
-   Scrollbars
-   ========================================================================== */
-
-.chat-area::-webkit-scrollbar,
-.sidebar::-webkit-scrollbar {
-  width: 8px;
-}
-
-.chat-area::-webkit-scrollbar-thumb,
-.sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-}
-
-.chat-area::-webkit-scrollbar-thumb:hover,
-.sidebar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-/* ==========================================================================
-   Login page
-   ========================================================================== */
-
-.login-page {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 1.5rem;
-}
-
-.login-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.9rem;
-  width: 100%;
-  max-width: 360px;
-  padding: 2rem 1.75rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  text-align: center;
-}
-
-.login-logo {
-  align-self: center;
-  color: #fc6d26;
-  margin-bottom: 0.25rem;
-}
-
-.login-card h1 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.login-subtitle {
-  margin: -0.4rem 0 0.4rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.login-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  text-align: left;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.login-field input {
-  padding: 0.6rem 0.75rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.92rem;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.login-field input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.login-error {
-  font-size: 0.8rem;
-  color: var(--error);
-  background: var(--error-soft);
-  border: 1px solid rgba(240, 112, 122, 0.25);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.65rem;
-  text-align: left;
-}
-
-.login-submit {
-  margin-top: 0.25rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: var(--radius-md);
-  border: none;
-  background: #fc6d26;
-  color: #fff;
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
-}
-
-.login-submit:hover:not(:disabled) {
-  background: #e24329;
-}
-
-.login-submit:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 /* ==========================================================================

@@ -2,7 +2,13 @@ const form = document.getElementById("login-form");
 const usernameEl = document.getElementById("login-username");
 const passwordEl = document.getElementById("login-password");
 const errorEl = document.getElementById("login-error");
+const errorTextEl = document.getElementById("login-error-text");
 const submitBtn = document.getElementById("login-submit");
+
+function showError(message) {
+  errorTextEl.textContent = message;
+  errorEl.hidden = false;
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -25,11 +31,9 @@ form.addEventListener("submit", async (event) => {
     }
 
     const data = await response.json().catch(() => ({}));
-    errorEl.textContent = data.error || "Sign in failed.";
-    errorEl.hidden = false;
+    showError(data.error || "Sign in failed.");
   } catch (err) {
-    errorEl.textContent = `Connection error: ${err.message}`;
-    errorEl.hidden = false;
+    showError(`Connection error: ${err.message}`);
   } finally {
     submitBtn.disabled = false;
   }
