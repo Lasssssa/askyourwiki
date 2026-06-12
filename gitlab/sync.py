@@ -63,6 +63,7 @@ class SyncManager:
         try:
             if scope_type == "project":
                 pages = await client.get_project_wiki_pages(scope_id)
+                pages += await client.get_project_root_markdown_pages(scope_id)
             else:
                 pages = await client.get_group_wiki_pages(scope_id)
         except GitLabAPIError as exc:
@@ -72,7 +73,7 @@ class SyncManager:
             return 0
 
         if not pages:
-            logger.info("No wiki pages found for %s %s.", scope_type, scope_id)
+            logger.info("No content found for %s %s.", scope_type, scope_id)
             return 0
 
         self.store.reset_scope(scope_type, scope_id)

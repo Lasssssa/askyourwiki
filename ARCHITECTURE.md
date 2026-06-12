@@ -68,6 +68,13 @@ Asynchronous HTTP client (httpx) wrapping the GitLab REST API v4.
   `GET /projects/:id/wikis` and `GET /groups/:id/wikis` respectively, with
   `with_content=1` (so the markdown content is fetched in a single pass). If the wiki is
   disabled or missing (404), the method returns an empty list instead of raising.
+- `get_project_root_markdown_pages(project_id)` lists the root of the project's default
+  branch via `GET /projects/:id/repository/tree`, keeps the `*.md` blobs, and fetches each
+  one's raw content via `GET /projects/:id/repository/files/:path/raw`. Each file is
+  returned in the same shape as a wiki page, with `slug` prefixed by `repo-root/` (e.g.
+  `repo-root/README.md`) so it doesn't collide with actual wiki pages. If the repository is
+  missing or empty (404), it returns an empty list; a file that fails to fetch is skipped
+  with a warning rather than failing the whole sync.
 
 ### `gitlab/sync.py` — `SyncManager`
 
@@ -78,11 +85,12 @@ Orchestrates synchronization and keeps state (`last_sync_at`, `last_sync_errors`
   (`GITLAB_GROUP_IDS`), calls `_sync_scope()`. A lock (`is_syncing`) prevents concurrent
   runs (if a scheduled sync and a manual sync overlap, the second one is ignored and
   returns the current status).
-- `_sync_scope(client, scope_type, scope_id)`: fetches the pages via the client, then
-  **fully replaces** the scope's local content (`store.reset_scope()` removes the
-  directory, then each page is rewritten via `store.save_page()`). Per-scope errors are
-  caught and accumulated in `last_sync_errors` without interrupting synchronization of the
-  other scopes.
+- `_sync_scope(client, scope_type, scope_id)`: fetches the pages via the client — for
+  projects, this combines the wiki pages with the root-level `*.md` files of the
+  repository — then **fully replaces** the scope's local content (`store.reset_scope()`
+  removes the directory, then each page is rewritten via `store.save_page()`). Per-scope
+  errors are caught and accumulated in `last_sync_errors` without interrupting
+  synchronization of the other scopes.
 
 > **Why a full resync instead of incremental?** The GitLab `/wikis` API returns no
 > last-modified date per page. There is therefore no reliable way to know which pages

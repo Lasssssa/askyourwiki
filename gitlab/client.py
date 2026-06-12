@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 
@@ -99,3 +100,34 @@ class GitLabClient:
         except GitLabNotFoundError:
             logger.warning("Wiki not found or disabled for %s %s.", scope, scope_id)
             return []
+
+    async def get_project_root_markdown_pages(self, project_id: int) -> list[dict[str, Any]]:
+        """Fetches the content of all Markdown files at the root of the project's default branch."""
+        try:
+            tree = await self._get_paginated(f"/projects/{project_id}/repository/tree")
+        except GitLabNotFoundError:
+            logger.warning("Repository not found or empty for project %s.", project_id)
+            return []
+
+        md_files = [
+            item
+            for item in tree
+            if item.get("type") == "blob" and item.get("name", "").lower().endswith(".md")
+        ]
+
+        pages: list[dict[str, Any]] = []
+        for item in md_files:
+            path = item["path"]
+            try:
+                content = await self._get_repository_file_raw(project_id, path)
+            except GitLabAPIError as exc:
+                logger.warning("Could not fetch %s for project %s: %s", path, project_id, exc)
+                continue
+            pages.append({"slug": f"repo-root/{path}", "title": path, "content": content, "format": "markdown"})
+
+        return pages
+
+    async def _get_repository_file_raw(self, project_id: int, file_path: str) -> str:
+        encoded_path = quote(file_path, safe="")
+        response = await self._get(f"/projects/{project_id}/repository/files/{encoded_path}/raw")
+        return response.text

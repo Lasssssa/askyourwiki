@@ -10,6 +10,8 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
 ## Features
 
 - Synchronization of wiki pages from GitLab projects and groups to local markdown storage
+- For projects, also synchronizes the Markdown files (`*.md`) found at the root of the
+  repository's default branch (e.g. `README.md`, `CONTRIBUTING.md`)
 - Periodic automatic synchronization + manual sync endpoint
 - Natural language chat based on wiki content, with streaming responses (SSE)
 - Configurable LLM engine: OpenAI-compatible self-hosted model (vLLM, ...) by default, or hosted API
