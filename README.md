@@ -1,11 +1,29 @@
 # AskYourWiki
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A chat application for querying the wikis (projects and/or groups) of a self-hosted GitLab
 instance in natural language, powered by a large language model (LLM) as the response engine.
 
 The generation engine is **pluggable**: by default the application uses a self-hosted model via
 an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, llama.cpp, TGI,
 ...). A hosted API (Anthropic) can be used as an alternative.
+
+## Table of contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Configuration (.env)](#configuration-env)
+- [Running locally](#running-locally)
+- [Running with Docker](#running-with-docker)
+- [OpenAI-compatible self-hosted model (vLLM, etc.)](#openai-compatible-self-hosted-model-vllm-etc)
+- [Hosted API (Anthropic) as an alternative](#hosted-api-anthropic-as-an-alternative)
+- [Usage](#usage)
+- [API](#api)
+- [Known limitations](#known-limitations)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -155,3 +173,16 @@ identically regardless of the chosen engine: only the `chat/` module changes int
   rendering in the context sent to the model is not converted to markdown.
 - No authentication is implemented on the web interface: deploy it behind a reverse proxy /
   VPN if the instance is not meant for public access.
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed description of the components, data
+flow, and design decisions.
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
