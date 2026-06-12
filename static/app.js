@@ -24,6 +24,7 @@ const statusErrorEl = document.getElementById("status-error");
 const gitlabLink = document.getElementById("gitlab-link");
 const gitlabLinkText = document.getElementById("gitlab-link-text");
 const headerTitle = document.getElementById("header-title");
+const logoutBtn = document.getElementById("logout-btn");
 
 const sidebarOpenBtn = document.getElementById("sidebar-open");
 const sidebarCloseBtn = document.getElementById("sidebar-close");
@@ -342,6 +343,8 @@ async function refreshStatus() {
       statusErrorEl.hidden = true;
       statusErrorEl.textContent = "";
     }
+
+    logoutBtn.hidden = !data.auth_enabled;
   } catch {
     statusPagesEl.textContent = "—";
     statusSyncEl.textContent = "unavailable";
@@ -381,6 +384,14 @@ async function triggerSync() {
 }
 
 syncBtn.addEventListener("click", triggerSync);
+
+logoutBtn.addEventListener("click", async () => {
+  try {
+    await fetch("/logout", { method: "POST" });
+  } finally {
+    window.location.href = "/login";
+  }
+});
 
 // --- App config (GitLab instance, title) ------------------------------------------
 

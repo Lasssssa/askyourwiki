@@ -150,14 +150,18 @@ identically regardless of the chosen engine: only the `chat/` module changes int
 
 ## Authentication
 
-The app has no user accounts, but it can be protected with a single shared HTTP Basic Auth
-credential. Set both `AUTH_USERNAME` and `AUTH_PASSWORD` in `.env` to require a login for
-every route (the UI and all `/api/*` endpoints):
+The app has no user accounts, but it can be protected with a single shared login. Set both
+`AUTH_USERNAME` and `AUTH_PASSWORD` in `.env` to require a sign-in for every route (the UI
+and all `/api/*` endpoints):
 
 ```bash
 AUTH_USERNAME=admin
 AUTH_PASSWORD=<a-strong-password>
 ```
+
+When configured, unauthenticated visitors are redirected to a login page (styled like the
+rest of the app) at `/login`. On success, a signed session cookie is set and a **"Log
+out"** button appears at the bottom of the sidebar.
 
 Leave both empty (the default) to disable authentication entirely. If only one of the two
 is set, the app logs a warning and authentication stays disabled.

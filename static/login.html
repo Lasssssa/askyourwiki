@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AskYourWiki — Login</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="login-page">
+    <form id="login-form" class="login-card">
+      <div class="login-logo">
+        <svg class="brand-logo" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M22.65 10.31 12 18.71 1.35 10.31a.84.84 0 0 1-.31-.94l1.71-5.27a.42.42 0 0 1 .8 0l1.72 5.27h6.46l1.72-5.27a.42.42 0 0 1 .8 0l1.72 5.27a.84.84 0 0 1-.32.94Z"/>
+        </svg>
+      </div>
+      <h1>AskYourWiki</h1>
+      <p class="login-subtitle">Sign in to continue</p>
+
+      <label class="login-field">
+        <span>Username</span>
+        <input id="login-username" name="username" type="text" autocomplete="username" required autofocus />
+      </label>
+
+      <label class="login-field">
+        <span>Password</span>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+      </label>
+
+      <div id="login-error" class="login-error" hidden></div>
+
+      <button id="login-submit" type="submit" class="login-submit">Sign in</button>
+    </form>
+  </div>
+
+  <script src="/static/login.js"></script>
+</body>
+</html>

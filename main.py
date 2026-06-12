@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
+import hashlib
+import hmac
 import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from chat.anthropic_chat import AnthropicChat
@@ -89,27 +89,44 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="GitLab Wiki Chat", lifespan=lifespan)
 
+SESSION_COOKIE = "session"
+# Derived from AUTH_PASSWORD so sessions remain valid across restarts without extra config.
+_SESSION_SECRET = hashlib.sha256(config.AUTH_PASSWORD.encode()).hexdigest()
+
+# Paths reachable without a session, even when authentication is enabled.
+PUBLIC_PATHS = {"/login", "/logout"}
+
+
+def _sign(value: str) -> str:
+    return hmac.new(_SESSION_SECRET.encode(), value.encode(), hashlib.sha256).hexdigest()
+
+
+def _make_session_cookie() -> str:
+    return f"{config.AUTH_USERNAME}.{_sign(config.AUTH_USERNAME)}"
+
+
+def _is_authenticated(request: Request) -> bool:
+    cookie = request.cookies.get(SESSION_COOKIE, "")
+    username, _, signature = cookie.partition(".")
+    return bool(signature) and secrets.compare_digest(username, config.AUTH_USERNAME) and secrets.compare_digest(
+        signature, _sign(username)
+    )
+
 
 @app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """Protects the whole app with HTTP Basic Auth if AUTH_USERNAME/AUTH_PASSWORD are set."""
+async def auth_middleware(request: Request, call_next):
+    """Protects the whole app with a session login if AUTH_USERNAME/AUTH_PASSWORD are set."""
     if not (config.AUTH_USERNAME and config.AUTH_PASSWORD):
         return await call_next(request)
 
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Basic "):
-        try:
-            decoded = base64.b64decode(auth_header.removeprefix("Basic ")).decode("utf-8")
-            username, _, password = decoded.partition(":")
-        except (binascii.Error, UnicodeDecodeError):
-            username, password = "", ""
+    path = request.url.path
+    if path in PUBLIC_PATHS or path.startswith("/static/") or _is_authenticated(request):
+        return await call_next(request)
 
-        if secrets.compare_digest(username, config.AUTH_USERNAME) and secrets.compare_digest(
-            password, config.AUTH_PASSWORD
-        ):
-            return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse(status_code=401, content={"error": "Authentication required."})
 
-    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="AskYourWiki"'})
+    return RedirectResponse("/login")
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -118,6 +135,40 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse("static/index.html")
+
+
+@app.get("/login")
+async def login_page() -> FileResponse:
+    return FileResponse("static/login.html")
+
+
+@app.post("/login")
+async def login(request: Request) -> JSONResponse:
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+
+    if secrets.compare_digest(username, config.AUTH_USERNAME) and secrets.compare_digest(
+        password, config.AUTH_PASSWORD
+    ):
+        response = JSONResponse(content={"ok": True})
+        response.set_cookie(
+            SESSION_COOKIE,
+            _make_session_cookie(),
+            httponly=True,
+            samesite="lax",
+            max_age=30 * 24 * 3600,
+        )
+        return response
+
+    return JSONResponse(status_code=401, content={"error": "Invalid username or password."})
+
+
+@app.post("/logout")
+async def logout() -> JSONResponse:
+    response = JSONResponse(content={"ok": True})
+    response.delete_cookie(SESSION_COOKIE)
+    return response
 
 
 @app.post("/api/sync")
@@ -134,7 +185,9 @@ async def trigger_sync() -> JSONResponse:
 
 @app.get("/api/status")
 async def status() -> JSONResponse:
-    return JSONResponse(content=sync_manager.status())
+    result = sync_manager.status()
+    result["auth_enabled"] = bool(config.AUTH_USERNAME and config.AUTH_PASSWORD)
+    return JSONResponse(content=result)
 
 
 @app.post("/api/chat")

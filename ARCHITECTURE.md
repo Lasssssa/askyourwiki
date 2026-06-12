@@ -186,12 +186,27 @@ At module load time:
 
 ### Authentication middleware
 
-A `@app.middleware("http")` function (`basic_auth`) runs before every request, including
-static files and `/api/*`. If `AUTH_USERNAME` and `AUTH_PASSWORD` are both set, it requires
-a matching `Authorization: Basic ...` header (compared with `secrets.compare_digest` to
-avoid timing attacks) and responds `401` with a `WWW-Authenticate` challenge otherwise. If
-either variable is unset, the middleware is a no-op and the app remains open — this keeps
-the "no `.env` required" Docker quick-start working.
+A `@app.middleware("http")` function (`auth_middleware`) runs before every request. If
+`AUTH_USERNAME` and `AUTH_PASSWORD` are both set:
+
+- `/login`, `/logout`, and `/static/*` are always reachable.
+- Other requests are authenticated via a signed session cookie (`session`). The cookie's
+  signature is an HMAC-SHA256 of the username, keyed by a secret derived from
+  `AUTH_PASSWORD` (`hashlib.sha256(AUTH_PASSWORD)`) — so sessions remain valid across
+  restarts without extra configuration, but rotate automatically if the password changes.
+  Comparisons use `secrets.compare_digest` to avoid timing attacks.
+- If the cookie is missing/invalid: `/api/*` requests get a `401` JSON error, other
+  requests are redirected to `/login`.
+
+`GET /login` serves `static/login.html` (styled like the rest of the app). `POST /login`
+checks `{username, password}` (JSON body) against `AUTH_USERNAME`/`AUTH_PASSWORD` and, on
+success, sets the session cookie (`httponly`, `samesite=lax`, 30-day expiry). `POST
+/logout` clears it.
+
+If either `AUTH_USERNAME` or `AUTH_PASSWORD` is unset, the middleware is a no-op and the
+app remains open — this keeps the "no `.env` required" Docker quick-start working. The
+frontend reflects this via `auth_enabled` in `/api/status`, which controls whether the
+"Log out" button is shown.
 
 Routes:
 
@@ -199,8 +214,11 @@ Routes:
 |---|---|
 | `GET /` | Serves `static/index.html` |
 | `GET /static/*` | Static files (CSS/JS) via `StaticFiles` |
+| `GET /login` | Serves `static/login.html` |
+| `POST /login` | Checks `{username, password}` and sets the session cookie on success |
+| `POST /logout` | Clears the session cookie |
 | `POST /api/sync` | Triggers `sync_manager.sync_all()` (400 if no scope configured) and returns the resulting status |
-| `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes |
+| `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes, `auth_enabled` |
 | `POST /api/chat` | See below |
 
 ### `POST /api/chat` in detail
