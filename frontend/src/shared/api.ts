@@ -47,6 +47,17 @@ export async function logout(): Promise<void> {
   await fetch("/api/logout", { method: "POST" });
 }
 
+export interface LoginOptions {
+  password: boolean;
+  gitlab: boolean;
+}
+
+export async function fetchLoginOptions(): Promise<LoginOptions> {
+  const response = await fetch("/api/login-options");
+  if (!response.ok) throw new Error(`Server error (${response.status}).`);
+  return response.json();
+}
+
 export async function login(username: string, password: string): Promise<{ ok: boolean; error?: string }> {
   const response = await fetch("/api/login", {
     method: "POST",

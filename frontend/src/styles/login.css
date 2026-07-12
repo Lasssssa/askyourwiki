@@ -118,6 +118,56 @@
   }
 }
 
+/* "Sign in with GitLab" button */
+.login-gitlab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.login-gitlab-btn svg {
+  color: var(--brand);
+}
+
+.login-gitlab-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--brand);
+}
+
+.login-gitlab-btn:active {
+  transform: scale(0.99);
+}
+
+/* "or" separator between the two sign-in methods */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 /* Submit button, same brand color as the chat's send button */
 .login-submit {
   margin-top: 0.25rem;

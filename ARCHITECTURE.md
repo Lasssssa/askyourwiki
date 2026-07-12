@@ -46,6 +46,9 @@ Exposes a singleton `config` object used by every module:
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`: access to the hosted Anthropic API (if `LLM_PROVIDER=anthropic`)
 - `SYNC_INTERVAL_MINUTES`: frequency of the scheduled sync job
 - `APP_TITLE`: title displayed in the web UI header (exposed via `GET /api/config`)
+- `AUTH_USERNAME`, `AUTH_PASSWORD`: optional shared login; `GITLAB_OAUTH_CLIENT_ID`,
+  `GITLAB_OAUTH_CLIENT_SECRET`, `GITLAB_OAUTH_REDIRECT_URI`, `SESSION_SECRET`: optional
+  "Sign in with GitLab" (see [Authentication](#authentication))
 - `MAX_CONTEXT_TOKENS` (150,000 by default): token budget for the context sent to the model
 - `MAX_HISTORY_MESSAGES` (5 by default): number of history exchanges kept
 - `DATA_DIR`: `data/wikis/`, root of local storage
@@ -186,29 +189,43 @@ At module load time:
 3. Otherwise: logs a warning, no sync is scheduled.
 4. On shutdown: cleanly stops the scheduler.
 
-### Authentication middleware
+### Authentication
 
-A `@app.middleware("http")` function (`auth_middleware`) runs before every request. If
-`AUTH_USERNAME` and `AUTH_PASSWORD` are both set:
+Two optional, combinable sign-in methods, both ending in the same signed session cookie:
 
-- `/login`, `/api/login`, `/api/logout`, and `/assets/*` are always reachable.
-- Other requests are authenticated via a signed session cookie (`session`). The cookie's
-  signature is an HMAC-SHA256 of the username, keyed by a secret derived from
-  `AUTH_PASSWORD` (`hashlib.sha256(AUTH_PASSWORD)`) — so sessions remain valid across
-  restarts without extra configuration, but rotate automatically if the password changes.
-  Comparisons use `secrets.compare_digest` to avoid timing attacks.
+- **Shared username/password** (`AUTH_USERNAME` + `AUTH_PASSWORD`): `POST /api/login`
+  checks `{username, password}` (JSON body) and, on success, sets the session cookie.
+- **Sign in with GitLab** (`GITLAB_OAUTH_CLIENT_ID` + `GITLAB_OAUTH_CLIENT_SECRET`,
+  against the `GITLAB_URL` instance): standard OAuth2 Authorization Code flow.
+  `GET /auth/gitlab` redirects to the instance's `/oauth/authorize` with the `read_user`
+  scope and an anti-CSRF `state` (random value stored in a short-lived signed cookie).
+  `GET /auth/gitlab/callback` verifies the state, exchanges the code for an access token
+  (`POST /oauth/token`), fetches the user's profile (`GET /api/v4/user`) to get their
+  username, then sets the session cookie and redirects to `/`. Failures redirect to
+  `/login?error=...`, which the login page displays. The redirect URI is derived from the
+  incoming request unless `GITLAB_OAUTH_REDIRECT_URI` is set (reverse proxies).
+
+A `@app.middleware("http")` function (`auth_middleware`) runs before every request. If at
+least one method is configured (`config.auth_enabled`):
+
+- `/login`, `/api/login`, `/api/logout`, `/api/login-options`, `/auth/*`, and `/assets/*`
+  are always reachable.
+- Other requests are authenticated via the session cookie (`session`,`httponly`,
+  `samesite=lax`, 30-day expiry): `{username}.{HMAC-SHA256(username)}`. The HMAC key is
+  `SESSION_SECRET` if set, otherwise derived from `AUTH_PASSWORD` +
+  `GITLAB_OAUTH_CLIENT_SECRET` — so sessions remain valid across restarts without extra
+  configuration, but rotate automatically if the credentials change. Comparisons use
+  `secrets.compare_digest` to avoid timing attacks.
 - If the cookie is missing/invalid: `/api/*` requests get a `401` JSON error, other
   requests are redirected to `/login`.
 
-`GET /login` serves the login page (styled like the rest of the app). `POST /api/login`
-checks `{username, password}` (JSON body) against `AUTH_USERNAME`/`AUTH_PASSWORD` and, on
-success, sets the session cookie (`httponly`, `samesite=lax`, 30-day expiry). `POST
-/api/logout` clears it.
+`GET /login` serves the login page, which fetches `GET /api/login-options`
+(`{password: bool, gitlab: bool}`) to decide what to render: the credentials form, the
+"Sign in with GitLab" button, or both. `POST /api/logout` clears the session cookie.
 
-If either `AUTH_USERNAME` or `AUTH_PASSWORD` is unset, the middleware is a no-op and the
-app remains open — this keeps the "no `.env` required" Docker quick-start working. The
-frontend reflects this via `auth_enabled` in `/api/status`, which controls whether the
-"Log out" button is shown.
+If no method is configured, the middleware is a no-op and the app remains open — this
+keeps the "no `.env` required" Docker quick-start working. The frontend reflects this via
+`auth_enabled` in `/api/status`, which controls whether the "Log out" button is shown.
 
 Routes:
 
@@ -219,6 +236,9 @@ Routes:
 | `GET /login` | Serves `frontend/dist/login.html` |
 | `POST /api/login` | Checks `{username, password}` and sets the session cookie on success |
 | `POST /api/logout` | Clears the session cookie |
+| `GET /api/login-options` | Sign-in methods available (`{password, gitlab}`), consumed by the login page |
+| `GET /auth/gitlab` | Redirects to GitLab's `/oauth/authorize` (with anti-CSRF state) |
+| `GET /auth/gitlab/callback` | Verifies the state, exchanges the code, opens the session |
 | `GET /api/config` | UI configuration: `gitlab_url` (sidebar link) and `title` (header) |
 | `POST /api/sync` | Triggers `sync_manager.sync_all()` (400 if no scope configured) and returns the resulting status |
 | `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes, `auth_enabled` |
@@ -258,8 +278,10 @@ so the UI works on restricted networks without any CDN access.
   bubbles), and the animated typing indicator.
 - **`src/chat/Composer.tsx`**: auto-resizing textarea (Enter sends, Shift+Enter inserts
   a newline) and the send button.
-- **`src/login/LoginPage.tsx`**: the sign-in form; submits to `POST /api/login` and
-  redirects to `/` on success.
+- **`src/login/LoginPage.tsx`**: the sign-in page. Fetches `GET /api/login-options` and
+  renders the credentials form (submitted to `POST /api/login`), the "Sign in with
+  GitLab" button (a link to `/auth/gitlab`), or both; displays errors passed back via
+  the `?error=` query parameter after a failed OAuth flow.
 - **`src/shared/api.ts`**: typed wrappers for every backend endpoint. `streamChat()` is
   an async generator that sends `POST /api/chat`, reads the response via
   `response.body.getReader()` (SSE is parsed manually since `EventSource` doesn't

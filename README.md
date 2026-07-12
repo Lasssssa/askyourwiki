@@ -70,7 +70,9 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `SYNC_INTERVAL_MINUTES` | Frequency of automatic synchronization (in minutes) |
    | `APP_PORT` | Port the application listens on |
    | `APP_TITLE` | Title displayed in the web UI header (optional) |
-   | `AUTH_USERNAME` / `AUTH_PASSWORD` | Optional HTTP Basic Auth credentials (see [Authentication](#authentication)) |
+   | `AUTH_USERNAME` / `AUTH_PASSWORD` | Optional shared login credentials (see [Authentication](#authentication)) |
+   | `GITLAB_OAUTH_CLIENT_ID` / `GITLAB_OAUTH_CLIENT_SECRET` | Optional "Sign in with GitLab" OAuth application (see [Authentication](#authentication)) |
+   | `GITLAB_OAUTH_REDIRECT_URI` / `SESSION_SECRET` | Optional OAuth callback URL override and session-cookie signing secret |
 
 ### Finding GitLab project/group IDs
 
@@ -161,25 +163,56 @@ identically regardless of the chosen engine: only the `chat/` module changes int
 
 ## Authentication
 
-The app has no user accounts, but it can be protected with a single shared login. Set both
-`AUTH_USERNAME` and `AUTH_PASSWORD` in `.env` to require a sign-in for every route (the UI
-and all `/api/*` endpoints):
+Authentication is optional. When at least one method below is configured, every route (the
+UI and all `/api/*` endpoints) requires a sign-in: unauthenticated visitors are redirected
+to a login page at `/login`, a signed session cookie is set on success, and a **"Log
+out"** button appears at the bottom of the sidebar. When both methods are configured, the
+login page offers both. Leave everything empty (the default) to keep the app open.
+
+### Sign in with GitLab (OAuth2)
+
+Let users sign in with their existing account on your GitLab instance (`GITLAB_URL`):
+
+1. On GitLab, create an OAuth application (**User/Group/Admin Settings > Applications**)
+   with the `read_user` scope and the redirect URI
+   `https://<your-app-host>/auth/gitlab/callback`.
+2. Fill in `.env`:
+
+   ```bash
+   GITLAB_OAUTH_CLIENT_ID=<application-id>
+   GITLAB_OAUTH_CLIENT_SECRET=<application-secret>
+   # Optional; set it explicitly when running behind a reverse proxy:
+   GITLAB_OAUTH_REDIRECT_URI=https://<your-app-host>/auth/gitlab/callback
+   ```
+
+The login page then shows a **"Sign in with GitLab"** button that runs the standard OAuth2
+Authorization Code flow against your instance.
+
+> Any user who can sign in to the GitLab instance can access the app (the app only asks
+> for the `read_user` scope to identify them — it never sees the user's password and gets
+> no access to their repositories). If you need finer-grained access control, put the app
+> behind your own reverse proxy / SSO.
+
+### Shared username/password
+
+Alternatively (or additionally), set both `AUTH_USERNAME` and `AUTH_PASSWORD` to protect
+the app with a single shared login:
 
 ```bash
 AUTH_USERNAME=admin
 AUTH_PASSWORD=<a-strong-password>
 ```
 
-When configured, unauthenticated visitors are redirected to a login page (styled like the
-rest of the app) at `/login`. On success, a signed session cookie is set and a **"Log
-out"** button appears at the bottom of the sidebar.
-
-Leave both empty (the default) to disable authentication entirely. If only one of the two
-is set, the app logs a warning and authentication stays disabled.
+If only one of the two is set, the app logs a warning and password sign-in stays disabled.
 
 > This is a single shared credential, not per-user accounts — suitable for personal or
-> small-team use. For multi-user access control, put the app behind your own
-> reverse proxy / SSO, or run it on a private network / VPN.
+> small-team use.
+
+### Sessions
+
+Sessions are HMAC-signed cookies. The signing secret is derived from the configured
+credentials by default (sessions survive restarts); set `SESSION_SECRET` to control it
+explicitly (e.g. when running several replicas).
 
 ## Usage
 
@@ -197,6 +230,9 @@ is set, the app logs a warning and authentication stays disabled.
 | `POST` | `/api/sync` | Triggers a manual wiki synchronization |
 | `GET` | `/api/status` | Number of indexed pages, last sync date, any errors |
 | `GET` | `/api/config` | UI configuration (GitLab instance URL, app title) |
+| `GET` | `/api/login-options` | Sign-in methods available on the login page |
+| `GET` | `/auth/gitlab` | Starts the "Sign in with GitLab" OAuth2 flow |
+| `GET` | `/auth/gitlab/callback` | OAuth2 callback (exchanges the code, opens the session) |
 
 ## Known limitations
 
@@ -207,8 +243,9 @@ is set, the app logs a warning and authentication stays disabled.
   (~4 characters per token), not an exact count from the model's tokenizer.
 - Wiki pages in formats other than Markdown (e.g. AsciiDoc, RDoc) are stored as-is; their
   rendering in the context sent to the model is not converted to markdown.
-- Authentication is a single shared HTTP Basic Auth credential (no per-user accounts). If
-  it's not configured, deploy the app behind a reverse proxy / VPN if it shouldn't be
+- Authentication identifies users (shared credential or GitLab OAuth) but has no
+  per-user permissions: every signed-in user sees the same wikis. If authentication is
+  not configured, deploy the app behind a reverse proxy / VPN if it shouldn't be
   publicly accessible.
 
 ## Architecture

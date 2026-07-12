@@ -8,6 +8,10 @@ import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from typing import Optional
+from urllib.parse import urlencode
+
+import httpx
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
@@ -90,37 +94,59 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="GitLab Wiki Chat", lifespan=lifespan)
 
 SESSION_COOKIE = "session"
-# Derived from AUTH_PASSWORD so sessions remain valid across restarts without extra config.
-_SESSION_SECRET = hashlib.sha256(config.AUTH_PASSWORD.encode()).hexdigest()
+OAUTH_STATE_COOKIE = "oauth_state"
+
+
+def _derive_session_secret() -> str:
+    """Secret used to sign session cookies (HMAC key).
+
+    Prefers an explicit SESSION_SECRET; otherwise derives one from the configured
+    credentials so sessions remain valid across restarts without extra config. As a
+    last resort (no auth configured), a random per-process secret is generated.
+    """
+    if config.SESSION_SECRET:
+        return config.SESSION_SECRET
+    seed = config.AUTH_PASSWORD + config.GITLAB_OAUTH_CLIENT_SECRET
+    if seed:
+        return hashlib.sha256(seed.encode()).hexdigest()
+    return secrets.token_hex(32)
+
+
+_SESSION_SECRET = _derive_session_secret()
 
 # Paths reachable without a session, even when authentication is enabled.
-PUBLIC_PATHS = {"/login", "/api/login", "/api/logout"}
+PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/api/login-options"}
+PUBLIC_PREFIXES = ("/assets/", "/auth/")
 
 
 def _sign(value: str) -> str:
     return hmac.new(_SESSION_SECRET.encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
-def _make_session_cookie() -> str:
-    return f"{config.AUTH_USERNAME}.{_sign(config.AUTH_USERNAME)}"
+def _make_signed_cookie(value: str) -> str:
+    return f"{value}.{_sign(value)}"
+
+
+def _verify_signed_cookie(cookie: str) -> Optional[str]:
+    """Returns the cookie's payload if its signature is valid, None otherwise."""
+    value, _, signature = cookie.rpartition(".")
+    if value and signature and secrets.compare_digest(signature, _sign(value)):
+        return value
+    return None
 
 
 def _is_authenticated(request: Request) -> bool:
-    cookie = request.cookies.get(SESSION_COOKIE, "")
-    username, _, signature = cookie.partition(".")
-    return bool(signature) and secrets.compare_digest(username, config.AUTH_USERNAME) and secrets.compare_digest(
-        signature, _sign(username)
-    )
+    return _verify_signed_cookie(request.cookies.get(SESSION_COOKIE, "")) is not None
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """Protects the whole app with a session login if AUTH_USERNAME/AUTH_PASSWORD are set."""
-    if not (config.AUTH_USERNAME and config.AUTH_PASSWORD):
+    """Protects the whole app with a session login if any auth method is configured."""
+    if not config.auth_enabled:
         return await call_next(request)
 
     path = request.url.path
-    if path in PUBLIC_PATHS or path.startswith("/assets/") or _is_authenticated(request):
+    if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES) or _is_authenticated(request):
         return await call_next(request)
 
     if path.startswith("/api/"):
@@ -161,8 +187,21 @@ async def login_page() -> Response:
     return _frontend_page("login.html")
 
 
+def _set_session_cookie(response: Response, username: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE,
+        _make_signed_cookie(username),
+        httponly=True,
+        samesite="lax",
+        max_age=30 * 24 * 3600,
+    )
+
+
 @app.post("/api/login")
 async def login(request: Request) -> JSONResponse:
+    if not config.password_auth_enabled:
+        return JSONResponse(status_code=403, content={"error": "Password sign-in is disabled."})
+
     body = await request.json()
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
@@ -171,16 +210,109 @@ async def login(request: Request) -> JSONResponse:
         password, config.AUTH_PASSWORD
     ):
         response = JSONResponse(content={"ok": True})
-        response.set_cookie(
-            SESSION_COOKIE,
-            _make_session_cookie(),
-            httponly=True,
-            samesite="lax",
-            max_age=30 * 24 * 3600,
-        )
+        _set_session_cookie(response, username)
         return response
 
     return JSONResponse(status_code=401, content={"error": "Invalid username or password."})
+
+
+@app.get("/api/login-options")
+async def login_options() -> JSONResponse:
+    """Tells the login page which sign-in methods are available."""
+    return JSONResponse(
+        content={"password": config.password_auth_enabled, "gitlab": config.gitlab_auth_enabled}
+    )
+
+
+def _oauth_redirect_uri(request: Request) -> str:
+    return config.GITLAB_OAUTH_REDIRECT_URI or str(request.url_for("gitlab_auth_callback"))
+
+
+def _login_error_redirect(message: str) -> RedirectResponse:
+    return RedirectResponse(f"/login?{urlencode({'error': message})}")
+
+
+@app.get("/auth/gitlab")
+async def gitlab_auth_start(request: Request) -> RedirectResponse:
+    """Starts the OAuth2 Authorization Code flow against the GitLab instance."""
+    if not config.gitlab_auth_enabled:
+        return _login_error_redirect("GitLab sign-in is not configured.")
+
+    state = secrets.token_urlsafe(32)
+    params = urlencode(
+        {
+            "client_id": config.GITLAB_OAUTH_CLIENT_ID,
+            "redirect_uri": _oauth_redirect_uri(request),
+            "response_type": "code",
+            "scope": "read_user",
+            "state": state,
+        }
+    )
+    response = RedirectResponse(f"{config.GITLAB_URL}/oauth/authorize?{params}")
+    # Short-lived, signed anti-CSRF state, checked on callback.
+    response.set_cookie(
+        OAUTH_STATE_COOKIE, _make_signed_cookie(state), httponly=True, samesite="lax", max_age=600
+    )
+    return response
+
+
+@app.get("/auth/gitlab/callback")
+async def gitlab_auth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+) -> RedirectResponse:
+    """Exchanges the authorization code for a token and opens a session."""
+    if not config.gitlab_auth_enabled:
+        return _login_error_redirect("GitLab sign-in is not configured.")
+
+    if error:
+        return _login_error_redirect(error_description or f"GitLab sign-in failed ({error}).")
+
+    expected_state = _verify_signed_cookie(request.cookies.get(OAUTH_STATE_COOKIE, ""))
+    if not code or not state or expected_state is None or not secrets.compare_digest(state, expected_state):
+        return _login_error_redirect("GitLab sign-in failed (invalid state). Please try again.")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            token_response = await client.post(
+                f"{config.GITLAB_URL}/oauth/token",
+                data={
+                    "client_id": config.GITLAB_OAUTH_CLIENT_ID,
+                    "client_secret": config.GITLAB_OAUTH_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": _oauth_redirect_uri(request),
+                },
+            )
+            token_response.raise_for_status()
+            access_token = token_response.json().get("access_token", "")
+            if not access_token:
+                return _login_error_redirect("GitLab sign-in failed (no access token returned).")
+
+            user_response = await client.get(
+                f"{config.GITLAB_URL}/api/v4/user",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            user_response.raise_for_status()
+            username = user_response.json().get("username", "")
+    except httpx.HTTPStatusError:
+        logger.exception("GitLab OAuth flow rejected by the instance.")
+        return _login_error_redirect("GitLab sign-in failed: the GitLab instance rejected the request.")
+    except httpx.HTTPError:
+        logger.exception("GitLab OAuth flow failed.")
+        return _login_error_redirect("GitLab sign-in failed: could not reach the GitLab instance.")
+
+    if not username:
+        return _login_error_redirect("GitLab sign-in failed (no username in the GitLab profile).")
+
+    logger.info("GitLab sign-in successful for %r.", username)
+    response = RedirectResponse("/")
+    _set_session_cookie(response, username)
+    response.delete_cookie(OAUTH_STATE_COOKIE)
+    return response
 
 
 @app.post("/api/logout")
@@ -210,7 +342,7 @@ async def trigger_sync() -> JSONResponse:
 @app.get("/api/status")
 async def status() -> JSONResponse:
     result = sync_manager.status()
-    result["auth_enabled"] = bool(config.AUTH_USERNAME and config.AUTH_PASSWORD)
+    result["auth_enabled"] = config.auth_enabled
     return JSONResponse(content=result)
 
 
