@@ -20,8 +20,8 @@ together, how data flows, and the important design decisions.
                                             │ HTTP (SSE)
                                             ▼
                                   ┌────────────────────┐
-                                  │  static/ (web UI)   │
-                                  │ index.html / app.js │
+                                  │ frontend/ (web UI)  │
+                                  │  React + Vite (TS)  │
                                   └────────────────────┘
 ```
 
@@ -45,9 +45,11 @@ Exposes a singleton `config` object used by every module:
 - `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY`: access to the OpenAI-compatible self-hosted model
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`: access to the hosted Anthropic API (if `LLM_PROVIDER=anthropic`)
 - `SYNC_INTERVAL_MINUTES`: frequency of the scheduled sync job
+- `APP_TITLE`: title displayed in the web UI header (exposed via `GET /api/config`)
 - `MAX_CONTEXT_TOKENS` (150,000 by default): token budget for the context sent to the model
 - `MAX_HISTORY_MESSAGES` (5 by default): number of history exchanges kept
 - `DATA_DIR`: `data/wikis/`, root of local storage
+- `FRONTEND_DIST`: `frontend/dist/`, compiled web UI served by the backend
 
 `Config.validate()` returns a list of warnings (missing config) logged at startup, without
 blocking the application from starting (allows starting even without GitLab config, e.g. to
@@ -189,7 +191,7 @@ At module load time:
 A `@app.middleware("http")` function (`auth_middleware`) runs before every request. If
 `AUTH_USERNAME` and `AUTH_PASSWORD` are both set:
 
-- `/login`, `/logout`, and `/static/*` are always reachable.
+- `/login`, `/api/login`, `/api/logout`, and `/assets/*` are always reachable.
 - Other requests are authenticated via a signed session cookie (`session`). The cookie's
   signature is an HMAC-SHA256 of the username, keyed by a secret derived from
   `AUTH_PASSWORD` (`hashlib.sha256(AUTH_PASSWORD)`) — so sessions remain valid across
@@ -198,10 +200,10 @@ A `@app.middleware("http")` function (`auth_middleware`) runs before every reque
 - If the cookie is missing/invalid: `/api/*` requests get a `401` JSON error, other
   requests are redirected to `/login`.
 
-`GET /login` serves `static/login.html` (styled like the rest of the app). `POST /login`
+`GET /login` serves the login page (styled like the rest of the app). `POST /api/login`
 checks `{username, password}` (JSON body) against `AUTH_USERNAME`/`AUTH_PASSWORD` and, on
 success, sets the session cookie (`httponly`, `samesite=lax`, 30-day expiry). `POST
-/logout` clears it.
+/api/logout` clears it.
 
 If either `AUTH_USERNAME` or `AUTH_PASSWORD` is unset, the middleware is a no-op and the
 app remains open — this keeps the "no `.env` required" Docker quick-start working. The
@@ -212,11 +214,12 @@ Routes:
 
 | Route | Behavior |
 |---|---|
-| `GET /` | Serves `static/index.html` |
-| `GET /static/*` | Static files (CSS/JS) via `StaticFiles` |
-| `GET /login` | Serves `static/login.html` |
-| `POST /login` | Checks `{username, password}` and sets the session cookie on success |
-| `POST /logout` | Clears the session cookie |
+| `GET /` | Serves `frontend/dist/index.html` (the chat UI) |
+| `GET /assets/*` | Compiled JS/CSS bundles via `StaticFiles` |
+| `GET /login` | Serves `frontend/dist/login.html` |
+| `POST /api/login` | Checks `{username, password}` and sets the session cookie on success |
+| `POST /api/logout` | Clears the session cookie |
+| `GET /api/config` | UI configuration: `gitlab_url` (sidebar link) and `title` (header) |
 | `POST /api/sync` | Triggers `sync_manager.sync_all()` (400 if no scope configured) and returns the resulting status |
 | `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes, `auth_enabled` |
 | `POST /api/chat` | See below |
@@ -233,32 +236,42 @@ Routes:
    - emits `data: {"error": "..."}\n\n` on exception,
    - always ends with `data: [DONE]\n\n`.
 
-## Web interface (`static/`)
+## Web interface (`frontend/`)
 
-- **`index.html`** / **`login.html`**: page structure. `index.html` is the chat UI (status
-  bar + sync button, message area, textarea + send button) and loads `marked.js` via CDN
-  for markdown rendering; `login.html` is the sign-in form shown when authentication is
-  enabled.
-- **`css/base.css`**: shared variables (`--bg-app`, `--accent`, `--brand`, etc.), reset, and
-  a global `[hidden] { display: none !important; }` rule so JS-toggled elements hide
-  correctly regardless of other `display` rules.
-- **`css/chat.css`**: the chat UI — sidebar, message bubbles (styled differently for
-  user/assistant/error), animated typing indicator, composer.
-- **`css/login.css`**: the login page — centered card, pill-shaped inputs matching the
-  chat composer, and the error banner.
-- **`js/app.js`**:
-  - `sendMessage()`: appends the user message to local history (`conversationHistory`),
-    sends `POST /api/chat`, reads the response via `response.body.getReader()` (SSE is
-    parsed manually since `EventSource` doesn't support POST), accumulates the `delta`
-    chunks and progressively re-renders the markdown in the assistant bubble.
-  - `refreshStatus()`: polls `/api/status` every 30s and displays
-    "X indexed pages · last synced N minutes ago".
-  - `triggerSync()`: calls `POST /api/sync`, disables the button during the operation and
-    shows the result (number of pages) before reverting to the initial state.
-  - The "Log out" button is shown/hidden based on `auth_enabled` from `/api/status` and
-    calls `POST /logout` before redirecting to `/login`.
-- **`js/login.js`**: submits `{username, password}` to `POST /login` as JSON and
-  redirects to `/` on success, or shows the returned error message otherwise.
+React + TypeScript application built with Vite. It is a **multi-page build** with two
+entry documents matching the backend routes: `index.html` (the chat UI, entry
+`src/chat/main.tsx`) and `login.html` (the sign-in page, entry `src/login/main.tsx`).
+The production bundle is emitted into `frontend/dist/` and served directly by FastAPI
+(`GET /` / `GET /login` return the HTML documents, `/assets/*` the hashed JS/CSS
+bundles). All dependencies — including `marked` and `highlight.js` — are bundled locally,
+so the UI works on restricted networks without any CDN access.
+
+- **`src/chat/App.tsx`**: top-level state — the message list, streaming flag, sync
+  status (polled from `/api/status` every 30s), UI config from `/api/config` (header
+  title, GitLab link), and mobile sidebar visibility. `sendMessage()` iterates over the
+  SSE stream and progressively updates the assistant message.
+- **`src/chat/Sidebar.tsx`**: brand, "New conversation", status card, the "Sync wikis"
+  button (with syncing/success/error states), the GitLab instance link, and the "Log
+  out" button (shown when `auth_enabled` is true; calls `POST /api/logout` then
+  redirects to `/login`).
+- **`src/chat/Messages.tsx`**: welcome screen, message rows (user/assistant/error
+  bubbles), and the animated typing indicator.
+- **`src/chat/Composer.tsx`**: auto-resizing textarea (Enter sends, Shift+Enter inserts
+  a newline) and the send button.
+- **`src/login/LoginPage.tsx`**: the sign-in form; submits to `POST /api/login` and
+  redirects to `/` on success.
+- **`src/shared/api.ts`**: typed wrappers for every backend endpoint. `streamChat()` is
+  an async generator that sends `POST /api/chat`, reads the response via
+  `response.body.getReader()` (SSE is parsed manually since `EventSource` doesn't
+  support POST), and yields `{delta}` / `{error}` events.
+- **`src/shared/markdown.ts`**: markdown rendering with `marked` + `marked-highlight` +
+  `highlight.js`, sanitized with DOMPurify before being injected into the DOM.
+- **`src/styles/`**: `base.css` (shared variables — `--bg-app`, `--accent`, `--brand`,
+  etc. — and reset), `chat.css` (sidebar, bubbles, typing indicator, composer), and
+  `login.css` (centered card, pill-shaped inputs, error banner).
+
+During development, `npm run dev` starts the Vite dev server (hot reload) which proxies
+`/api` and `/auth` requests to the FastAPI backend on port 8000.
 
 ## Data synchronization: order of operations
 

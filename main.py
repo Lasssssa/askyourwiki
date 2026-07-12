@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from chat.anthropic_chat import AnthropicChat
@@ -94,7 +94,7 @@ SESSION_COOKIE = "session"
 _SESSION_SECRET = hashlib.sha256(config.AUTH_PASSWORD.encode()).hexdigest()
 
 # Paths reachable without a session, even when authentication is enabled.
-PUBLIC_PATHS = {"/login", "/logout"}
+PUBLIC_PATHS = {"/login", "/api/login", "/api/logout"}
 
 
 def _sign(value: str) -> str:
@@ -120,7 +120,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     path = request.url.path
-    if path in PUBLIC_PATHS or path.startswith("/static/") or _is_authenticated(request):
+    if path in PUBLIC_PATHS or path.startswith("/assets/") or _is_authenticated(request):
         return await call_next(request)
 
     if path.startswith("/api/"):
@@ -129,20 +129,39 @@ async def auth_middleware(request: Request, call_next):
     return RedirectResponse("/login")
 
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# The web UI is built with Vite (see frontend/); the compiled bundle is served from
+# frontend/dist. During frontend development, use the Vite dev server instead
+# (`npm run dev` in frontend/), which proxies API calls to this application.
+if (config.FRONTEND_DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=config.FRONTEND_DIST / "assets"), name="assets")
+else:
+    logger.warning(
+        "Frontend build not found in %s: run `npm install && npm run build` in frontend/.",
+        config.FRONTEND_DIST,
+    )
+
+
+def _frontend_page(name: str) -> Response:
+    page = config.FRONTEND_DIST / name
+    if not page.is_file():
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Frontend build not found: run `npm install && npm run build` in frontend/."},
+        )
+    return FileResponse(page)
 
 
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse("static/index.html")
+async def index() -> Response:
+    return _frontend_page("index.html")
 
 
 @app.get("/login")
-async def login_page() -> FileResponse:
-    return FileResponse("static/login.html")
+async def login_page() -> Response:
+    return _frontend_page("login.html")
 
 
-@app.post("/login")
+@app.post("/api/login")
 async def login(request: Request) -> JSONResponse:
     body = await request.json()
     username = (body.get("username") or "").strip()
@@ -164,11 +183,16 @@ async def login(request: Request) -> JSONResponse:
     return JSONResponse(status_code=401, content={"error": "Invalid username or password."})
 
 
-@app.post("/logout")
+@app.post("/api/logout")
 async def logout() -> JSONResponse:
     response = JSONResponse(content={"ok": True})
     response.delete_cookie(SESSION_COOKIE)
     return response
+
+
+@app.get("/api/config")
+async def app_config() -> JSONResponse:
+    return JSONResponse(content={"gitlab_url": config.GITLAB_URL, "title": config.APP_TITLE})
 
 
 @app.post("/api/sync")

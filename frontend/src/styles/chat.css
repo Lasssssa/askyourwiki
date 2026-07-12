@@ -253,7 +253,7 @@
   color: var(--brand);
 }
 
-#gitlab-link-text {
+.gitlab-link-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

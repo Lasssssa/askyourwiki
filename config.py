@@ -52,12 +52,16 @@ class Config:
     SYNC_INTERVAL_MINUTES: int = int(os.getenv("SYNC_INTERVAL_MINUTES", "60"))
     APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
 
+    # Title displayed in the web UI header
+    APP_TITLE: str = os.getenv("APP_TITLE", "GitLab Wiki Assistant")
+
     # Optional HTTP Basic Auth for the whole app (disabled unless both are set)
     AUTH_USERNAME: str = os.getenv("AUTH_USERNAME", "")
     AUTH_PASSWORD: str = os.getenv("AUTH_PASSWORD", "")
 
     BASE_DIR: Path = Path(__file__).resolve().parent
     DATA_DIR: Path = BASE_DIR / "data" / "wikis"
+    FRONTEND_DIST: Path = BASE_DIR / "frontend" / "dist"
 
     MAX_CONTEXT_TOKENS: int = int(os.getenv("MAX_CONTEXT_TOKENS", "150000"))
     MAX_HISTORY_MESSAGES: int = int(os.getenv("MAX_HISTORY_MESSAGES", "5"))

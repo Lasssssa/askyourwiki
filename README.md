@@ -34,12 +34,14 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
 - Periodic automatic synchronization + manual sync endpoint
 - Natural language chat based on wiki content, with streaming responses (SSE)
 - Configurable LLM engine: OpenAI-compatible self-hosted model (vLLM, ...) by default, or hosted API
-- A clean dark-mode web interface, with markdown rendering and syntax highlighting for responses
+- A clean dark-mode web interface (React + Vite), with markdown rendering and syntax
+  highlighting for responses — all assets bundled locally, no CDN required at runtime
 - Ready-to-use Docker setup
 
 ## Requirements
 
 - Python 3.11+
+- Node.js 20+ (only to build the web UI; not needed when running with Docker)
 - A GitLab Personal Access Token with the `read_api` (or `api`) scope
 - An LLM engine:
   - either a server exposing an OpenAI-compatible API (e.g. [vLLM](https://github.com/vllm-project/vllm), Ollama, TGI, llama.cpp) — default
@@ -67,6 +69,7 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Hosted API configuration (if `LLM_PROVIDER=anthropic`) |
    | `SYNC_INTERVAL_MINUTES` | Frequency of automatic synchronization (in minutes) |
    | `APP_PORT` | Port the application listens on |
+   | `APP_TITLE` | Title displayed in the web UI header (optional) |
    | `AUTH_USERNAME` / `AUTH_PASSWORD` | Optional HTTP Basic Auth credentials (see [Authentication](#authentication)) |
 
 ### Finding GitLab project/group IDs
@@ -83,14 +86,22 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
 ## Running locally
 
 ```bash
+# Backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# Web UI (built once, then served by the backend from frontend/dist)
+make front-install front-build
 
 uvicorn main:app --reload --port 8000
 ```
 
 The application will be available at http://localhost:8000.
+
+To work on the web UI itself, start the Vite dev server alongside the backend
+(`make front-dev`, served at http://localhost:5173 with hot reload); it proxies API
+calls to the backend on port 8000.
 
 On startup, an initial wiki synchronization is triggered automatically (if any
 projects/groups are configured), then a periodic synchronization is scheduled every
@@ -185,6 +196,7 @@ is set, the app logs a warning and authentication stays disabled.
 | `POST` | `/api/chat` | `{message, history}` → streaming SSE response |
 | `POST` | `/api/sync` | Triggers a manual wiki synchronization |
 | `GET` | `/api/status` | Number of indexed pages, last sync date, any errors |
+| `GET` | `/api/config` | UI configuration (GitLab instance URL, app title) |
 
 ## Known limitations
 
