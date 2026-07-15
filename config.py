@@ -37,6 +37,22 @@ class Config:
     GITLAB_PROJECT_IDS: list[int] = _parse_id_list(os.getenv("GITLAB_PROJECT_IDS"))
     GITLAB_GROUP_IDS: list[int] = _parse_id_list(os.getenv("GITLAB_GROUP_IDS"))
 
+    # Expand each configured group into its projects and sync their wikis/READMEs,
+    # so new projects added to a group are picked up automatically (no need to list
+    # every project id). SYNC_INCLUDE_SUBGROUPS also descends into subgroups.
+    SYNC_GROUP_PROJECTS: bool = os.getenv("SYNC_GROUP_PROJECTS", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    SYNC_INCLUDE_SUBGROUPS: bool = os.getenv("SYNC_INCLUDE_SUBGROUPS", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
     # "vllm" (default, OpenAI-compatible self-hosted model) or "anthropic" (hosted API)
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "vllm").strip().lower()
 

@@ -155,7 +155,7 @@ async def _allowed_scope_keys(request: Request) -> Optional[set]:
     """
     if not config.wiki_access_control:
         return None
-    return await access_resolver.accessible_scope_keys(_current_user(request))
+    return await access_resolver.accessible_scope_keys(_current_user(request), store.list_scopes())
 
 
 @app.middleware("http")
@@ -377,7 +377,7 @@ async def status(request: Request) -> JSONResponse:
     result["auth_enabled"] = config.auth_enabled
     result["access_control"] = config.wiki_access_control
     if config.wiki_access_control:
-        allowed = await access_resolver.accessible_scope_keys(_current_user(request))
+        allowed = await access_resolver.accessible_scope_keys(_current_user(request), store.list_scopes())
         result["pages_accessible"] = store.count_pages(allowed)
     return JSONResponse(content=result)
 

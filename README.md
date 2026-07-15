@@ -62,8 +62,9 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    |---|---|
    | `GITLAB_URL` | Base URL of your GitLab instance (e.g. `https://gitlab.mycompany.com`) |
    | `GITLAB_TOKEN` | GitLab Personal Access Token (`read_api` scope) |
-   | `GITLAB_PROJECT_IDS` | IDs of the projects whose wikis should be indexed, comma-separated |
-   | `GITLAB_GROUP_IDS` | IDs of the groups whose wikis should be indexed (optional) |
+   | `GITLAB_GROUP_IDS` | IDs of the groups to index; every project in them (and subgroups) is discovered automatically |
+   | `GITLAB_PROJECT_IDS` | IDs of individual projects to index (optional; usually not needed — use groups) |
+   | `SYNC_GROUP_PROJECTS` / `SYNC_INCLUDE_SUBGROUPS` | Expand groups into their projects, and descend into subgroups (both default `true`) |
    | `LLM_PROVIDER` | `vllm` (default) or `anthropic` |
    | `VLLM_BASE_URL` / `VLLM_MODEL` / `VLLM_API_KEY` | Self-hosted model configuration (if `LLM_PROVIDER=vllm`) |
    | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Hosted API configuration (if `LLM_PROVIDER=anthropic`) |
@@ -75,16 +76,27 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `GITLAB_OAUTH_CLIENT_ID` / `GITLAB_OAUTH_CLIENT_SECRET` | "Sign in with GitLab" OAuth application (see [Authentication](#authentication)) |
    | `GITLAB_OAUTH_REDIRECT_URI` / `SESSION_SECRET` | Optional OAuth callback URL override and session-cookie signing secret |
 
-### Finding GitLab project/group IDs
+### Scope: groups vs. projects
 
-- **Project**: open the project on GitLab, the ID is shown under the project name on the
-  project's home page (or via `Settings > General`). It is also visible in the response of
-  `GET /api/v4/projects/<namespace>%2F<project>` (encode `/` as `%2F`).
+The simplest setup is to list **group IDs** in `GITLAB_GROUP_IDS`. On each sync the app
+discovers every project in those groups (and their subgroups, unless
+`SYNC_INCLUDE_SUBGROUPS=false`) and indexes each project's **wiki** and **root `*.md` files**
+(READMEs, etc.), plus the group's own wiki when present. New projects added to a group are
+picked up on the next sync automatically — and projects removed from a group are dropped
+from the index. Set `SYNC_GROUP_PROJECTS=false` to index only the groups' own wikis.
+
+Use `GITLAB_PROJECT_IDS` only to index specific extra projects (it's unioned with whatever
+the groups discover).
+
+### Finding GitLab group/project IDs
+
 - **Group**: open the group on GitLab, the ID is shown under the group name on the group's
   home page (or via `Settings > General`).
+- **Project**: open the project on GitLab, the ID is shown under the project name on the
+  project's home page (or via `Settings > General`).
 
-> The wiki must be enabled for the relevant project or group, and the token must have read
-> access to that project/group.
+> Archived projects and projects merely *shared* into a group are skipped. The token must
+> have read access to the groups/projects, and wikis must be enabled to be indexed.
 
 ## Running locally
 

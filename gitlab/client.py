@@ -91,6 +91,24 @@ class GitLabClient:
         """Fetches all wiki pages of a group, including content."""
         return await self._get_wiki_pages("groups", group_id)
 
+    async def list_group_project_ids(self, group_id: int, include_subgroups: bool = True) -> list[int]:
+        """Lists the ids of the (non-archived, non-shared) projects of a group.
+
+        With `include_subgroups`, projects of descendant subgroups are included too.
+        """
+        params = {
+            "include_subgroups": "true" if include_subgroups else "false",
+            "with_shared": "false",  # only projects that actually belong to the group
+            "archived": "false",
+            "simple": "true",
+        }
+        try:
+            projects = await self._get_paginated(f"/groups/{group_id}/projects", params=params)
+        except GitLabNotFoundError:
+            logger.warning("Group %s not found or inaccessible.", group_id)
+            return []
+        return [project["id"] for project in projects if "id" in project]
+
     async def _get_wiki_pages(
         self, scope: Literal["projects", "groups"], scope_id: int
     ) -> list[dict[str, Any]]:

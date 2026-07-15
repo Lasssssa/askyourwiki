@@ -135,6 +135,19 @@ class WikiStore:
         pages.sort(key=lambda p: p.synced_at, reverse=True)
         return pages
 
+    def list_scopes(self) -> list[tuple[str, int]]:
+        """Returns the (scope_type, scope_id) of every stored scope directory."""
+        scopes: list[tuple[str, int]] = []
+        if not self.data_dir.exists():
+            return scopes
+        for scope_dir in self.data_dir.iterdir():
+            if not scope_dir.is_dir():
+                continue
+            scope_type, _, raw_id = scope_dir.name.rpartition("_")
+            if scope_type in ("project", "group") and raw_id.isdigit():
+                scopes.append((scope_type, int(raw_id)))
+        return scopes
+
     def count_pages(self, allowed_scope_keys: set[str] | None = None) -> int:
         """Counts stored pages, optionally restricted to a set of scope keys.
 

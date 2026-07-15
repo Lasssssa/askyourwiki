@@ -37,14 +37,39 @@ class SyncManager:
         self.is_syncing = True
         self.last_sync_errors = []
         pages_synced = 0
+        discovery_ok = True
 
         try:
             async with GitLabClient(self.config.GITLAB_URL, self.config.GITLAB_TOKEN) as client:
-                for project_id in self.config.GITLAB_PROJECT_IDS:
-                    pages_synced += await self._sync_scope(client, "project", project_id)
+                # Explicit project ids, plus every project discovered from the
+                # configured groups (so new projects are picked up automatically).
+                project_ids: set[int] = set(self.config.GITLAB_PROJECT_IDS)
 
                 for group_id in self.config.GITLAB_GROUP_IDS:
                     pages_synced += await self._sync_scope(client, "group", group_id)
+                    if self.config.SYNC_GROUP_PROJECTS:
+                        try:
+                            discovered = await client.list_group_project_ids(
+                                group_id, self.config.SYNC_INCLUDE_SUBGROUPS
+                            )
+                            project_ids.update(discovered)
+                            logger.info("Discovered %d project(s) in group %s.", len(discovered), group_id)
+                        except GitLabAPIError as exc:
+                            discovery_ok = False
+                            message = f"group {group_id} project discovery: {exc}"
+                            logger.error("Project discovery failed for %s", message)
+                            self.last_sync_errors.append(message)
+
+                for project_id in sorted(project_ids):
+                    pages_synced += await self._sync_scope(client, "project", project_id)
+
+                # Remove scopes that are no longer configured/discovered — but only
+                # when discovery fully succeeded, so a transient GitLab error can't
+                # wipe projects we simply failed to enumerate this time.
+                if discovery_ok:
+                    target_keys = {f"group_{gid}" for gid in self.config.GITLAB_GROUP_IDS}
+                    target_keys |= {f"project_{pid}" for pid in project_ids}
+                    self._prune_stale_scopes(target_keys)
         except GitLabAPIError as exc:
             logger.error("Fatal error during synchronization: %s", exc)
             self.last_sync_errors.append(str(exc))
@@ -89,6 +114,13 @@ class SyncManager:
 
         logger.info("%d page(s) synced for %s %s.", len(pages), scope_type, scope_id)
         return len(pages)
+
+    def _prune_stale_scopes(self, target_keys: set[str]) -> None:
+        """Deletes locally stored scopes that are no longer configured/discovered."""
+        for scope_type, scope_id in self.store.list_scopes():
+            if f"{scope_type}_{scope_id}" not in target_keys:
+                logger.info("Removing stale scope %s %s (no longer synced).", scope_type, scope_id)
+                self.store.reset_scope(scope_type, scope_id)
 
     def status(self) -> dict[str, Any]:
         return {

@@ -41,6 +41,8 @@ Exposes a singleton `config` object used by every module:
 - `GITLAB_URL`, `GITLAB_TOKEN`: access to the GitLab instance
 - `GITLAB_PROJECT_IDS`, `GITLAB_GROUP_IDS`: lists of IDs (parsed from `"123,456"` strings),
   scopes to synchronize
+- `SYNC_GROUP_PROJECTS` (true), `SYNC_INCLUDE_SUBGROUPS` (true): expand configured groups
+  into their projects (optionally across subgroups) so new projects are indexed automatically
 - `LLM_PROVIDER`: LLM backend used (`vllm` by default, or `anthropic`)
 - `VLLM_BASE_URL`, `VLLM_MODEL`, `VLLM_API_KEY`: access to the OpenAI-compatible self-hosted model
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`: access to the hosted Anthropic API (if `LLM_PROVIDER=anthropic`)
@@ -89,10 +91,16 @@ Asynchronous HTTP client (httpx) wrapping the GitLab REST API v4.
 Orchestrates synchronization and keeps state (`last_sync_at`, `last_sync_errors`,
 `is_syncing`) consumed by `/api/status`.
 
-- `sync_all()`: for each project (`GITLAB_PROJECT_IDS`) then each group
-  (`GITLAB_GROUP_IDS`), calls `_sync_scope()`. A lock (`is_syncing`) prevents concurrent
-  runs (if a scheduled sync and a manual sync overlap, the second one is ignored and
-  returns the current status).
+- `sync_all()`: syncs each configured group's own wiki, and (when
+  `SYNC_GROUP_PROJECTS`) expands every group into its projects via
+  `client.list_group_project_ids(group_id, include_subgroups=...)`. The discovered ids are
+  unioned with the explicit `GITLAB_PROJECT_IDS`, and each project is synced with
+  `_sync_scope()`. So adding a project to a group makes it appear on the next sync with no
+  config change. A lock (`is_syncing`) prevents concurrent runs.
+- After a **fully successful** discovery it calls `_prune_stale_scopes()` to delete locally
+  stored scopes no longer configured/discovered (e.g. a project removed from a group). It is
+  skipped if any group's discovery failed, so a transient GitLab error can't wipe projects
+  that simply couldn't be enumerated.
 - `_sync_scope(client, scope_type, scope_id)`: fetches the pages via the client — for
   projects, this combines the wiki pages with the root-level `*.md` files of the
   repository — then **fully replaces** the scope's local content (`store.reset_scope()`
@@ -245,14 +253,16 @@ keeps the "no `.env` required" Docker quick-start working. The frontend reflects
 
 `config.wiki_access_control` (= `auth_enabled and ACCESS_CONTROL`) gates per-user filtering
 of the wiki context. When on, `gitlab/access.py`'s `AccessResolver.accessible_scope_keys(
-username)` returns the set of scope keys (`project_<id>` / `group_<id>`, matching the
-`WikiStore` directory names) the user may read:
+username, scopes)` returns the subset of `scopes` the user may read. The `scopes` come from
+`WikiStore.list_scopes()` — i.e. what is **actually indexed** (`project_<id>` / `group_<id>`
+directory names), so auto-discovered group projects are access-controlled just like
+configured ones:
 
-- Resolves the username to a GitLab user id, then for each configured scope reads its
-  **visibility** with the app token: `public`/`internal` → readable by any signed-in user;
-  `private` → readable only if `GET /{scope}/{id}/members/all/{user_id}` succeeds (direct or
-  inherited membership).
-- Results are cached per user for `ACCESS_CACHE_TTL` seconds. It **fails closed**: a total
+- Resolves the username to a GitLab user id, then checks each scope concurrently: reads its
+  **visibility** with the app token (`public`/`internal` → readable by any signed-in user;
+  `private` → readable only if `GET /{scope}/{id}/members/all/{user_id}` succeeds, direct or
+  inherited). Visibility is user-independent and cached across users.
+- Per-user results are cached for `ACCESS_CACHE_TTL` seconds. It **fails closed**: a total
   failure (e.g. GitLab unreachable) denies everything and isn't cached (so it retries); a
   per-scope error denies just that scope.
 
