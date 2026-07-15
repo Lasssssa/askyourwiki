@@ -19,6 +19,14 @@ FROM ${PYTHON_IMAGE}
 
 WORKDIR /app
 
+# Optional: trust extra CA certificates. Drop PEM files named *.crt into certs/.
+# This is a no-op when the folder only holds the placeholder, so it is never a
+# mandatory step. SSL_CERT_FILE points Python/httpx at the same merged bundle
+# (system CAs + any custom ones) so the app trusts them too, not just OS tools.
+COPY certs/ /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
