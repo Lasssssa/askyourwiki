@@ -145,21 +145,34 @@ File-based persistence of chat history, mirroring `WikiStore` (no database).
 
 ## Chat with the LLM
 
-### `chat/context.py` — `build_context()`
+### `chat/retrieval.py` — `Retriever` (RAG, default)
 
-Builds the text that will be injected into the model's system prompt.
+When `RETRIEVAL_ENABLED` (the default), the context is built by **retrieval** instead of
+dumping every page: only the wiki excerpts most relevant to the question are sent to the
+model, so the assistant scales past the context window.
 
-- Loads all pages via `WikiStore.load_all_pages()` (already sorted, most recent first).
-- Formats each page as a markdown section: `### {title} (scope: ..., slug: ...)` followed by
-  the content.
-- Accumulates sections as long as the cumulative size (in characters) stays under
-  `MAX_CONTEXT_TOKENS * 4` (heuristic of ~4 characters/token). As soon as adding a page
-  would exceed the budget, it stops: the oldest pages are therefore the first to be
-  excluded (priority to recent pages, as required by the spec).
-- Edge case: if even the first page alone exceeds the budget, it is hard-truncated to
-  `max_chars` characters.
-- Returns a `WikiContext` object (`text`, `pages_included`, `pages_total`, `truncated`) for
-  logging/diagnostics.
+- **Chunking**: each page is split into overlapping ~400-token chunks on paragraph bounds
+  (`chunk_text`), each carrying its `scope_type/scope_id/title/slug`.
+- **Index**: an in-memory **BM25** index (`_BM25Index`, pure Python — no deps, no model) is
+  built from all chunks. It's rebuilt after every sync and at startup (`main._reindex`, run
+  off the event loop via `asyncio.to_thread`).
+- **Retrieve**: `retrieve(query, allowed_scope_keys, max_tokens)` tokenizes the question,
+  gathers candidates from *selective* terms (skipping near-ubiquitous words), scores them
+  with BM25, **filters to the user's accessible scopes**, and packs the top chunks (with
+  `### title (scope…)` source headers) until the token budget. If nothing matches lexically
+  it falls back to the most recent allowed chunks.
+- The `Retriever` is the single retrieval seam — a semantic/embedding backend could replace
+  it without touching the endpoints.
+
+### `chat/context.py` — `build_context()` (fallback)
+
+Used when `RETRIEVAL_ENABLED=false`: builds the system-prompt text by concatenating pages.
+
+- Loads all pages via `WikiStore.load_all_pages()` (sorted most recent first), optionally
+  filtered to `allowed_scope_keys`, and formats each as a `### {title} (scope…)` section.
+- Accumulates sections while under `MAX_CONTEXT_TOKENS * 4` chars (~4 chars/token); oldest
+  pages drop first. If even the first page exceeds the budget it is hard-truncated.
+- Returns a `WikiContext` (`text`, `pages_included`, `pages_total`, `truncated`).
 
 ### `chat/base.py` — `BaseChat` and interchangeable backends
 
@@ -204,9 +217,12 @@ SSE streaming) is strictly identical regardless of the chosen backend.
 
 At module load time:
 - Instantiates `WikiStore`, `ConversationStore`, `SyncManager`, `AccessResolver`,
-  `AsyncIOScheduler`, and the `chat_client` corresponding to `LLM_PROVIDER` via
+  `Retriever`, `AsyncIOScheduler`, and the `chat_client` corresponding to `LLM_PROVIDER` via
   `_build_chat_client()` (if the required configuration is missing, `chat_client` is `None`
   and `/api/chat` will respond with 503).
+- `_sync_and_index()` runs a full sync then rebuilds the retrieval index; it's used for the
+  initial sync, the scheduled job, and `POST /api/sync`, so the index always tracks the
+  latest content.
 
 `lifespan` (app lifecycle):
 1. Logs warnings for missing configuration.
@@ -297,10 +313,10 @@ The `/api/conversations*` routes are scoped to the caller via `_current_user(req
 
 1. Reads `{message, history, conversation_id}` from the JSON body. 503 if no LLM backend is
    configured, 400 if the message is empty.
-2. Resolves the caller's allowed scopes via `_allowed_scope_keys(request)` and builds the
-   wiki context via `build_context(store, config.MAX_CONTEXT_TOKENS, allowed_scopes)` —
-   **reloaded on every request** (so it immediately reflects the latest synchronization),
-   filtered to the wikis the user may access.
+2. Resolves the caller's allowed scopes via `_allowed_scope_keys(request)`, then builds the
+   context — `retriever.retrieve(message, allowed_scopes, MAX_CONTEXT_TOKENS)` when
+   `RETRIEVAL_ENABLED`, otherwise `build_context(...)`. Either way it is filtered to the
+   wikis the user may access and reflects the latest synchronization.
 3. Returns a `StreamingResponse` (`text/event-stream`) that:
    - iterates over `chat_client.stream_response(message, history, context.text)`,
    - accumulates the fragments and emits each as `data: {"delta": "..."}\n\n`,
@@ -383,9 +399,10 @@ App startup
   few projects/groups) and has the advantage of being directly inspectable/version-controllable.
 - **Full resync per scope** rather than incremental (see GitLab API limitation in the
   README).
-- **Context reloaded on every message** rather than cached: guarantees freshness of
-  responses after a sync, at the cost of one disk read per request (negligible given the
-  data volume).
+- **Retrieval (BM25) over stuffing the whole corpus**: relevant excerpts are selected per
+  question so the assistant scales past the context window. Pure-Python and in-memory (no
+  DB, no embedding model), the index is rebuilt after each sync. Lexical-only is the
+  trade-off; the `Retriever` seam leaves room for a semantic backend later.
 - **Token heuristic (4 chars/token)** rather than an exact tokenizer: sufficient to stay
   under the context limit with a safety margin, without an extra dependency.
 - **End-to-end streaming** (LLM model → SSE → fetch reader → DOM) for immediate visual

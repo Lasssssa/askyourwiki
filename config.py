@@ -104,6 +104,16 @@ class Config:
     MAX_CONTEXT_TOKENS: int = int(os.getenv("MAX_CONTEXT_TOKENS", "150000"))
     MAX_HISTORY_MESSAGES: int = int(os.getenv("MAX_HISTORY_MESSAGES", "5"))
 
+    # Retrieval (RAG): rank wiki chunks against the question and send only the
+    # most relevant ones, instead of stuffing every page into the context. Set to
+    # "false" to fall back to the legacy "all pages up to the budget" behaviour.
+    RETRIEVAL_ENABLED: bool = os.getenv("RETRIEVAL_ENABLED", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
     # Persist users' chat conversations to disk so they can browse their history.
     # Disable it if you don't want conversation content stored server-side.
     SAVE_CONVERSATIONS: bool = os.getenv("SAVE_CONVERSATIONS", "true").strip().lower() not in (

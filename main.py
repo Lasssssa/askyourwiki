@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -21,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from chat.anthropic_chat import AnthropicChat
 from chat.base import BaseChat
 from chat.context import build_context
+from chat.retrieval import Retriever
 from chat.vllm import VLLMChat
 from config import config
 from gitlab.access import AccessResolver
@@ -34,7 +36,20 @@ store = WikiStore(config.DATA_DIR)
 conversation_store = ConversationStore(config.CONVERSATIONS_DIR)
 sync_manager = SyncManager(config, store)
 access_resolver = AccessResolver(config, config.ACCESS_CACHE_TTL)
+retriever = Retriever()
 scheduler = AsyncIOScheduler()
+
+
+async def _reindex() -> None:
+    """Rebuilds the retrieval index from the current wiki store (off the event loop)."""
+    await asyncio.to_thread(lambda: retriever.rebuild(store.load_all_pages()))
+
+
+async def _sync_and_index() -> dict:
+    """Runs a full sync and then rebuilds the retrieval index."""
+    result = await sync_manager.sync_all()
+    await _reindex()
+    return result
 
 
 def _build_chat_client() -> BaseChat | None:
@@ -75,10 +90,10 @@ async def lifespan(app: FastAPI):
 
     if config.GITLAB_PROJECT_IDS or config.GITLAB_GROUP_IDS:
         logger.info("Starting initial wiki synchronization...")
-        await sync_manager.sync_all()
+        await _sync_and_index()
 
         scheduler.add_job(
-            sync_manager.sync_all,
+            _sync_and_index,
             "interval",
             minutes=config.SYNC_INTERVAL_MINUTES,
             id="wiki_sync",
@@ -88,6 +103,8 @@ async def lifespan(app: FastAPI):
         logger.info("Automatic synchronization scheduled every %d minute(s).", config.SYNC_INTERVAL_MINUTES)
     else:
         logger.warning("No GitLab project/group configured: synchronization is disabled.")
+        # Still index whatever was synced to disk on a previous run.
+        await _reindex()
 
     yield
 
@@ -367,7 +384,7 @@ async def trigger_sync() -> JSONResponse:
             content={"error": "No GitLab project/group configured."},
         )
 
-    result = await sync_manager.sync_all()
+    result = await _sync_and_index()
     return JSONResponse(content=result)
 
 
@@ -431,13 +448,16 @@ async def chat(request: Request) -> StreamingResponse:
 
     # Restrict the context to the wikis this user is allowed to read (None = all).
     allowed_scopes = await _allowed_scope_keys(request)
-    context = build_context(store, config.MAX_CONTEXT_TOKENS, allowed_scopes)
+    if config.RETRIEVAL_ENABLED:
+        context_text = retriever.retrieve(message, allowed_scopes, config.MAX_CONTEXT_TOKENS).text
+    else:
+        context_text = build_context(store, config.MAX_CONTEXT_TOKENS, allowed_scopes).text
 
     async def event_stream():
         answer_parts: list[str] = []
         failed = False
         try:
-            async for delta in chat_client.stream_response(message, history, context.text):
+            async for delta in chat_client.stream_response(message, history, context_text):
                 answer_parts.append(delta)
                 yield f"data: {json.dumps({'delta': delta})}\n\n"
         except Exception as exc:  # pragma: no cover - last-resort safeguard for streaming

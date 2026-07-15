@@ -71,6 +71,7 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `SYNC_INTERVAL_MINUTES` | Frequency of automatic synchronization (in minutes) |
    | `APP_PORT` | Port the application listens on |
    | `APP_TITLE` | Title displayed in the web UI header (optional) |
+   | `RETRIEVAL_ENABLED` / `MAX_CONTEXT_TOKENS` | Rank & select the most relevant wiki chunks per question (RAG, default `true`) within the token budget |
    | `SAVE_CONVERSATIONS` | Persist users' chat history to `data/conversations/` (default `true`) |
    | `ACCESS_CONTROL` / `ACCESS_CACHE_TTL` | Restrict each signed-in user to the wikis they can access on GitLab (default `true`; see [Access control](#access-control)) |
    | `GITLAB_OAUTH_CLIENT_ID` / `GITLAB_OAUTH_CLIENT_SECRET` | "Sign in with GitLab" OAuth application (see [Authentication](#authentication)) |
@@ -236,7 +237,9 @@ content.
 ## Usage
 
 - Ask your questions in the chat area: answers are generated from the content of the
-  indexed wikis and streamed in real time.
+  indexed wikis and streamed in real time. With `RETRIEVAL_ENABLED` (the default), each
+  question is answered from the **most relevant** wiki excerpts (BM25 retrieval), so the
+  assistant scales to wikis far larger than the context window.
 - The **"Sync wikis"** button triggers a full manual resynchronization.
 - The status bar shows the number of indexed pages and the date of the last synchronization.
 - The **"History"** section of the sidebar lists your past conversations: click one to
@@ -264,8 +267,11 @@ content.
 - The GitLab REST API for wikis (`/wikis`) does not provide a last-modified date per page.
   Synchronization is therefore a **full resync** of each configured project/group (not an
   incremental page-by-page diff).
-- The token count estimate used for context truncation is a simple heuristic
-  (~4 characters per token), not an exact count from the model's tokenizer.
+- Retrieval is **lexical (BM25)**: it matches on the words used, so a question phrased with
+  synonyms the wikis don't use may miss relevant pages. Semantic (embedding) retrieval is a
+  natural future upgrade — the retriever is a single, swappable component.
+- The token count used for the context budget is a simple heuristic (~4 characters per
+  token), not an exact count from the model's tokenizer.
 - Wiki pages in formats other than Markdown (e.g. AsciiDoc, RDoc) are stored as-is; their
   rendering in the context sent to the model is not converted to markdown.
 - With `ACCESS_CONTROL` enabled, users are restricted to the wikis of the GitLab
