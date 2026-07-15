@@ -3,6 +3,21 @@
 ARG NODE_IMAGE=node:22-alpine
 ARG PYTHON_IMAGE=python:3.11-slim
 
+# Proxy configuration for building behind a corporate proxy. These are Docker's
+# predefined proxy build args: when passed with --build-arg, Docker automatically
+# exposes them as environment variables to every RUN step (both stages), so
+# `npm ci` and `pip install` reach the network through the proxy. They are not
+# baked into the final image. Leave them unset for a direct (no-proxy) build:
+#
+#   docker build \
+#     --build-arg HTTP_PROXY=http://proxy.corp:8080 \
+#     --build-arg HTTPS_PROXY=http://proxy.corp:8080 \
+#     --build-arg NO_PROXY=localhost,127.0.0.1,.corp \
+#     -t askyourwiki .
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 # --- Stage 1: build the web UI ---
 FROM ${NODE_IMAGE} AS frontend
 
@@ -18,18 +33,6 @@ RUN npm run build
 FROM ${PYTHON_IMAGE}
 
 WORKDIR /app
-
-# Optional: trust extra CA certificates. Drop PEM files named *.crt into certs/.
-# This is a no-op when the folder only holds the placeholder, so it is never a
-# mandatory step. SSL_CERT_FILE points Python/httpx at the same merged bundle
-# (system CAs + any custom ones) so the app trusts them too, not just OS tools.
-COPY certs/ /usr/local/share/ca-certificates/
-RUN update-ca-certificates
-# SSL_CERT_FILE makes Python/httpx trust the merged bundle at runtime. pip keeps
-# its own vendored trust store and ignores SSL_CERT_FILE, so PIP_CERT points it
-# at the same bundle -- needed when installing through a TLS-intercepting proxy.
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
