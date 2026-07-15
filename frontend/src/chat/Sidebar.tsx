@@ -206,8 +206,16 @@ export function Sidebar({
         <h2 className="sidebar-section-title">Status</h2>
         <div className="status-card">
           <div className="status-row">
-            <span className="status-label">Indexed pages</span>
-            <span className="status-value">{status ? (status.pages_indexed ?? 0) : "—"}</span>
+            <span className="status-label">
+              {status?.access_control ? "Pages you can see" : "Indexed pages"}
+            </span>
+            <span className="status-value">
+              {status
+                ? status.access_control
+                  ? (status.pages_accessible ?? 0)
+                  : (status.pages_indexed ?? 0)
+                : "—"}
+            </span>
           </div>
           <div className="status-row">
             <span className="status-label">Last sync</span>

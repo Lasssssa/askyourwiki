@@ -23,6 +23,7 @@ from chat.base import BaseChat
 from chat.context import build_context
 from chat.vllm import VLLMChat
 from config import config
+from gitlab.access import AccessResolver
 from gitlab.sync import SyncManager
 from storage.conversation_store import ConversationStore
 from storage.wiki_store import WikiStore
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 store = WikiStore(config.DATA_DIR)
 conversation_store = ConversationStore(config.CONVERSATIONS_DIR)
 sync_manager = SyncManager(config, store)
+access_resolver = AccessResolver(config, config.ACCESS_CACHE_TTL)
 scheduler = AsyncIOScheduler()
 
 
@@ -143,6 +145,17 @@ def _is_authenticated(request: Request) -> bool:
 def _current_user(request: Request) -> str:
     """The signed-in username, or 'anonymous' when authentication is disabled."""
     return _verify_signed_cookie(request.cookies.get(SESSION_COOKIE, "")) or "anonymous"
+
+
+async def _allowed_scope_keys(request: Request) -> Optional[set]:
+    """Scope keys the caller may read, or None when access control is off (= all).
+
+    None means "no filtering" (authentication or access control disabled); an empty
+    set means the user may read nothing.
+    """
+    if not config.wiki_access_control:
+        return None
+    return await access_resolver.accessible_scope_keys(_current_user(request))
 
 
 @app.middleware("http")
@@ -359,9 +372,13 @@ async def trigger_sync() -> JSONResponse:
 
 
 @app.get("/api/status")
-async def status() -> JSONResponse:
+async def status(request: Request) -> JSONResponse:
     result = sync_manager.status()
     result["auth_enabled"] = config.auth_enabled
+    result["access_control"] = config.wiki_access_control
+    if config.wiki_access_control:
+        allowed = await access_resolver.accessible_scope_keys(_current_user(request))
+        result["pages_accessible"] = store.count_pages(allowed)
     return JSONResponse(content=result)
 
 
@@ -412,7 +429,9 @@ async def chat(request: Request) -> StreamingResponse:
             status_code=400,
         )
 
-    context = build_context(store, config.MAX_CONTEXT_TOKENS)
+    # Restrict the context to the wikis this user is allowed to read (None = all).
+    allowed_scopes = await _allowed_scope_keys(request)
+    context = build_context(store, config.MAX_CONTEXT_TOKENS, allowed_scopes)
 
     async def event_stream():
         answer_parts: list[str] = []

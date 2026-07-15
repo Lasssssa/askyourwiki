@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 import httpx
@@ -131,3 +131,28 @@ class GitLabClient:
         encoded_path = quote(file_path, safe="")
         response = await self._get(f"/projects/{project_id}/repository/files/{encoded_path}/raw")
         return response.text
+
+    # --- Access checks (used to filter wikis per signed-in user) ---
+
+    async def get_user_id(self, username: str) -> Optional[int]:
+        """Resolves a GitLab username to its numeric id, or None if unknown."""
+        response = await self._get("/users", params={"username": username})
+        users = response.json()
+        return users[0]["id"] if users else None
+
+    async def get_visibility(
+        self, scope: Literal["projects", "groups"], scope_id: int
+    ) -> Optional[str]:
+        """Returns the scope's visibility ('public' | 'internal' | 'private')."""
+        response = await self._get(f"/{scope}/{scope_id}")
+        return response.json().get("visibility")
+
+    async def is_member(
+        self, scope: Literal["projects", "groups"], scope_id: int, user_id: int
+    ) -> bool:
+        """Whether the user is a direct or inherited member of the scope."""
+        try:
+            await self._get(f"/{scope}/{scope_id}/members/all/{user_id}")
+            return True
+        except GitLabNotFoundError:
+            return False

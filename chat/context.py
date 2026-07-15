@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 from storage.wiki_store import WikiPage, WikiStore
 
@@ -29,14 +30,24 @@ def _format_page(page: WikiPage) -> str:
     )
 
 
-def build_context(store: WikiStore, max_tokens: int) -> WikiContext:
-    """Builds the system context from all available wiki pages.
+def build_context(
+    store: WikiStore,
+    max_tokens: int,
+    allowed_scope_keys: Optional[set[str]] = None,
+) -> WikiContext:
+    """Builds the system context from available wiki pages.
 
     Pages are already sorted by sync date (most recent first). If the
     context exceeds `max_tokens`, it is truncated, prioritizing the most
     recent pages and stopping as soon as the budget is reached.
+
+    When `allowed_scope_keys` is given, only pages whose scope (``project_<id>``
+    or ``group_<id>``) is in that set are included — this is how per-user access
+    control filters the context. ``None`` means no filtering (all pages).
     """
     pages = store.load_all_pages()
+    if allowed_scope_keys is not None:
+        pages = [p for p in pages if f"{p.scope_type}_{p.scope_id}" in allowed_scope_keys]
     max_chars = max_tokens * CHARS_PER_TOKEN
 
     if not pages:

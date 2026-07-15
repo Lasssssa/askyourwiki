@@ -75,6 +75,11 @@ class Config:
     def auth_enabled(self) -> bool:
         return self.gitlab_auth_enabled
 
+    @property
+    def wiki_access_control(self) -> bool:
+        """Per-user wiki filtering is active only when sign-in is enabled."""
+        return self.auth_enabled and self.ACCESS_CONTROL
+
     BASE_DIR: Path = Path(__file__).resolve().parent
     DATA_DIR: Path = BASE_DIR / "data" / "wikis"
     CONVERSATIONS_DIR: Path = BASE_DIR / "data" / "conversations"
@@ -91,6 +96,19 @@ class Config:
         "no",
         "off",
     )
+
+    # When GitLab sign-in is enabled, restrict each user to the wikis of the
+    # projects/groups they can access on GitLab (membership + visibility). Has no
+    # effect when authentication is disabled (the app is then fully open).
+    ACCESS_CONTROL: bool = os.getenv("ACCESS_CONTROL", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    # How long (seconds) to cache a user's accessible-scope set before re-checking
+    # GitLab. Lower = access changes take effect sooner, at the cost of more calls.
+    ACCESS_CACHE_TTL: int = int(os.getenv("ACCESS_CACHE_TTL", "300"))
 
     @classmethod
     def validate(cls) -> list[str]:

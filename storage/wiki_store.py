@@ -135,7 +135,19 @@ class WikiStore:
         pages.sort(key=lambda p: p.synced_at, reverse=True)
         return pages
 
-    def count_pages(self) -> int:
+    def count_pages(self, allowed_scope_keys: set[str] | None = None) -> int:
+        """Counts stored pages, optionally restricted to a set of scope keys.
+
+        A scope key is the scope directory's name (``project_<id>`` /
+        ``group_<id>``). ``None`` counts every scope.
+        """
         if not self.data_dir.exists():
             return 0
-        return sum(1 for scope_dir in self.data_dir.iterdir() if scope_dir.is_dir() for _ in scope_dir.glob("*.md"))
+        total = 0
+        for scope_dir in self.data_dir.iterdir():
+            if not scope_dir.is_dir():
+                continue
+            if allowed_scope_keys is not None and scope_dir.name not in allowed_scope_keys:
+                continue
+            total += sum(1 for _ in scope_dir.glob("*.md"))
+        return total

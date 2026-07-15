@@ -71,6 +71,7 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `APP_PORT` | Port the application listens on |
    | `APP_TITLE` | Title displayed in the web UI header (optional) |
    | `SAVE_CONVERSATIONS` | Persist users' chat history to `data/conversations/` (default `true`) |
+   | `ACCESS_CONTROL` / `ACCESS_CACHE_TTL` | Restrict each signed-in user to the wikis they can access on GitLab (default `true`; see [Access control](#access-control)) |
    | `GITLAB_OAUTH_CLIENT_ID` / `GITLAB_OAUTH_CLIENT_SECRET` | "Sign in with GitLab" OAuth application (see [Authentication](#authentication)) |
    | `GITLAB_OAUTH_REDIRECT_URI` / `SESSION_SECRET` | Optional OAuth callback URL override and session-cookie signing secret |
 
@@ -199,6 +200,27 @@ Sessions are HMAC-signed cookies. The signing secret is derived from the OAuth c
 secret by default (sessions survive restarts); set `SESSION_SECRET` to control it
 explicitly (e.g. when running several replicas).
 
+## Access control
+
+When GitLab sign-in is enabled, each user only sees answers drawn from the wikis of the
+projects/groups **they can access on GitLab** (`ACCESS_CONTROL=true`, the default). For
+every configured scope the app decides access with its own `GITLAB_TOKEN`:
+
+- **public / internal** projects and groups → readable by any signed-in user;
+- **private** ones → readable only if the user is a (direct or inherited) **member**.
+
+The wiki context sent to the model is filtered to the allowed scopes, so content the user
+can't access is never included in an answer. The decision is cached per user for
+`ACCESS_CACHE_TTL` seconds (default 300), so membership changes take effect within a few
+minutes. On a GitLab error the app **fails closed** (denies the scope) rather than leaking
+content.
+
+> Notes: this needs a `GITLAB_TOKEN` that can read the projects/groups' membership (the
+> same token that syncs them). It reflects GitLab **membership and visibility**, not
+> per-feature `wiki_access_level` overrides. Set `ACCESS_CONTROL=false` to let every
+> signed-in user query all indexed wikis. When authentication is disabled the app is fully
+> open and no filtering applies.
+
 ## Usage
 
 - Ask your questions in the chat area: answers are generated from the content of the
@@ -216,7 +238,7 @@ explicitly (e.g. when running several replicas).
 | `GET` | `/` | Serves the chat interface |
 | `POST` | `/api/chat` | `{message, history, conversation_id}` → streaming SSE response (persists the turn) |
 | `POST` | `/api/sync` | Triggers a manual wiki synchronization |
-| `GET` | `/api/status` | Number of indexed pages, last sync date, any errors |
+| `GET` | `/api/status` | Indexed pages (and accessible pages under access control), last sync, errors |
 | `GET` | `/api/config` | UI configuration (GitLab instance URL, app title, history enabled) |
 | `GET` | `/api/me` | Signed-in user's GitLab profile (username, name, avatar) for the sidebar |
 | `GET` | `/api/conversations` | Current user's past conversations (summaries, newest first) |
@@ -234,9 +256,10 @@ explicitly (e.g. when running several replicas).
   (~4 characters per token), not an exact count from the model's tokenizer.
 - Wiki pages in formats other than Markdown (e.g. AsciiDoc, RDoc) are stored as-is; their
   rendering in the context sent to the model is not converted to markdown.
-- Authentication identifies users (GitLab OAuth) but has no per-user permissions: every
-  signed-in user sees the same wikis. If authentication is not configured, deploy the app
-  behind a reverse proxy / VPN if it shouldn't be publicly accessible.
+- With `ACCESS_CONTROL` enabled, users are restricted to the wikis of the GitLab
+  projects/groups they can access (membership + visibility). If authentication is not
+  configured the app is fully open — deploy it behind a reverse proxy / VPN if it
+  shouldn't be publicly accessible.
 - Saved conversations are stored as plain JSON on disk, scoped per user but unencrypted;
   when authentication is disabled they are all filed under `anonymous`. Set
   `SAVE_CONVERSATIONS=false` if conversation content shouldn't be persisted.

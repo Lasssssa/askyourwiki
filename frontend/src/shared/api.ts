@@ -23,6 +23,8 @@ export interface ChatMessage {
 
 export interface AppStatus {
   pages_indexed?: number;
+  pages_accessible?: number;
+  access_control?: boolean;
   last_sync_at?: string | null;
   is_syncing?: boolean;
   last_sync_errors?: string[];
