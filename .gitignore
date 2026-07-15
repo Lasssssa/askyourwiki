@@ -5,6 +5,7 @@ __pycache__/
 venv/
 data/wikis/*
 !data/wikis/.gitkeep
+data/conversations/
 node_modules/
 frontend/dist/
 .npmrc

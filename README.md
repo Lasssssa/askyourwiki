@@ -70,6 +70,7 @@ an **OpenAI**-compatible API (for example served by **vLLM**, but also Ollama, l
    | `SYNC_INTERVAL_MINUTES` | Frequency of automatic synchronization (in minutes) |
    | `APP_PORT` | Port the application listens on |
    | `APP_TITLE` | Title displayed in the web UI header (optional) |
+   | `SAVE_CONVERSATIONS` | Persist users' chat history to `data/conversations/` (default `true`) |
    | `GITLAB_OAUTH_CLIENT_ID` / `GITLAB_OAUTH_CLIENT_SECRET` | "Sign in with GitLab" OAuth application (see [Authentication](#authentication)) |
    | `GITLAB_OAUTH_REDIRECT_URI` / `SESSION_SECRET` | Optional OAuth callback URL override and session-cookie signing secret |
 
@@ -204,17 +205,23 @@ explicitly (e.g. when running several replicas).
   indexed wikis and streamed in real time.
 - The **"Sync wikis"** button triggers a full manual resynchronization.
 - The status bar shows the number of indexed pages and the date of the last synchronization.
+- The **"History"** section of the sidebar lists your past conversations: click one to
+  reopen and continue it, or delete it. Conversations are saved per user under
+  `data/conversations/`; set `SAVE_CONVERSATIONS=false` to disable saving entirely.
 
 ## API
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Serves the chat interface |
-| `POST` | `/api/chat` | `{message, history}` → streaming SSE response |
+| `POST` | `/api/chat` | `{message, history, conversation_id}` → streaming SSE response (persists the turn) |
 | `POST` | `/api/sync` | Triggers a manual wiki synchronization |
 | `GET` | `/api/status` | Number of indexed pages, last sync date, any errors |
-| `GET` | `/api/config` | UI configuration (GitLab instance URL, app title) |
+| `GET` | `/api/config` | UI configuration (GitLab instance URL, app title, history enabled) |
 | `GET` | `/api/me` | Signed-in user's GitLab profile (username, name, avatar) for the sidebar |
+| `GET` | `/api/conversations` | Current user's past conversations (summaries, newest first) |
+| `GET` | `/api/conversations/{id}` | Full message history of one conversation |
+| `DELETE` | `/api/conversations/{id}` | Deletes one conversation |
 | `GET` | `/auth/gitlab` | Starts the "Sign in with GitLab" OAuth2 flow |
 | `GET` | `/auth/gitlab/callback` | OAuth2 callback (exchanges the code, opens the session) |
 
@@ -227,10 +234,12 @@ explicitly (e.g. when running several replicas).
   (~4 characters per token), not an exact count from the model's tokenizer.
 - Wiki pages in formats other than Markdown (e.g. AsciiDoc, RDoc) are stored as-is; their
   rendering in the context sent to the model is not converted to markdown.
-- Authentication identifies users (shared credential or GitLab OAuth) but has no
-  per-user permissions: every signed-in user sees the same wikis. If authentication is
-  not configured, deploy the app behind a reverse proxy / VPN if it shouldn't be
-  publicly accessible.
+- Authentication identifies users (GitLab OAuth) but has no per-user permissions: every
+  signed-in user sees the same wikis. If authentication is not configured, deploy the app
+  behind a reverse proxy / VPN if it shouldn't be publicly accessible.
+- Saved conversations are stored as plain JSON on disk, scoped per user but unencrypted;
+  when authentication is disabled they are all filed under `anonymous`. Set
+  `SAVE_CONVERSATIONS=false` if conversation content shouldn't be persisted.
 
 ## Architecture
 

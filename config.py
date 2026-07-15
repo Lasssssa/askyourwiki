@@ -77,10 +77,20 @@ class Config:
 
     BASE_DIR: Path = Path(__file__).resolve().parent
     DATA_DIR: Path = BASE_DIR / "data" / "wikis"
+    CONVERSATIONS_DIR: Path = BASE_DIR / "data" / "conversations"
     FRONTEND_DIST: Path = BASE_DIR / "frontend" / "dist"
 
     MAX_CONTEXT_TOKENS: int = int(os.getenv("MAX_CONTEXT_TOKENS", "150000"))
     MAX_HISTORY_MESSAGES: int = int(os.getenv("MAX_HISTORY_MESSAGES", "5"))
+
+    # Persist users' chat conversations to disk so they can browse their history.
+    # Disable it if you don't want conversation content stored server-side.
+    SAVE_CONVERSATIONS: bool = os.getenv("SAVE_CONVERSATIONS", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
     @classmethod
     def validate(cls) -> list[str]:

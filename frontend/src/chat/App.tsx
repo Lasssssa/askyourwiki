@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  deleteConversation,
   fetchConfig,
+  fetchConversation,
+  fetchConversations,
   fetchCurrentUser,
   fetchStatus,
   streamChat,
   type AppConfig,
   type AppStatus,
   type ChatMessage,
+  type ConversationSummary,
   type CurrentUser,
   type Role,
 } from "../shared/api";
@@ -24,6 +28,13 @@ function makeMessage(role: Role, content: string, streaming = false): DisplayMes
   return { id: nextMessageId++, role, content, streaming };
 }
 
+function newConversationId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `c-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function App() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -31,11 +42,21 @@ export function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [config, setConfig] = useState<AppConfig>({});
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationId, setConversationId] = useState<string>(newConversationId);
   const [sidebarVisible, setSidebarVisible] = useState(false);
 
   // Completed user/assistant turns, sent back to the API as conversation history.
   const historyRef = useRef<ChatMessage[]>([]);
   const chatAreaRef = useRef<HTMLElement>(null);
+
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await fetchConversations());
+    } catch {
+      // History unavailable: leave the list as-is rather than blocking the chat.
+    }
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -66,6 +87,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    refreshConversations();
+  }, [refreshConversations]);
+
+  useEffect(() => {
     const el = chatAreaRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, isTyping]);
@@ -89,7 +114,7 @@ export function App() {
       };
 
       try {
-        for await (const event of streamChat(message, historyRef.current)) {
+        for await (const event of streamChat(message, historyRef.current, conversationId)) {
           if ("error" in event && event.error) {
             setIsTyping(false);
             setMessages((prev) => [...prev, makeMessage("error", event.error)]);
@@ -118,6 +143,9 @@ export function App() {
             { role: "user", content: message },
             { role: "assistant", content: assistantText }
           );
+          // The server has now persisted this turn: refresh the history list so
+          // a brand-new conversation appears (and its title shows up).
+          refreshConversations();
         }
       } catch (err) {
         setMessages((prev) => [
@@ -129,14 +157,57 @@ export function App() {
         setIsStreaming(false);
       }
     },
-    [isStreaming]
+    [isStreaming, conversationId, refreshConversations]
   );
 
   const startNewChat = useCallback(() => {
     if (isStreaming) return;
     historyRef.current = [];
     setMessages([]);
+    setConversationId(newConversationId());
   }, [isStreaming]);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      if (isStreaming || id === conversationId) {
+        setSidebarVisible(false);
+        return;
+      }
+      const conversation = await fetchConversation(id);
+      if (!conversation) {
+        // Likely deleted in the meantime: refresh the list and bail out.
+        refreshConversations();
+        return;
+      }
+
+      const loaded: DisplayMessage[] = conversation.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => makeMessage(m.role as Role, m.content));
+      historyRef.current = conversation.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role as Role, content: m.content }));
+
+      setMessages(loaded);
+      setConversationId(id);
+      setSidebarVisible(false);
+    },
+    [isStreaming, conversationId, refreshConversations]
+  );
+
+  const removeConversation = useCallback(
+    async (id: string) => {
+      const ok = await deleteConversation(id);
+      if (!ok) return;
+      await refreshConversations();
+      // If the open conversation was deleted, start a fresh one.
+      if (id === conversationId) {
+        historyRef.current = [];
+        setMessages([]);
+        setConversationId(newConversationId());
+      }
+    },
+    [conversationId, refreshConversations]
+  );
 
   return (
     <div className={`app${sidebarVisible ? " sidebar-visible" : ""}`}>
@@ -144,7 +215,11 @@ export function App() {
         status={status}
         config={config}
         user={user}
+        conversations={conversations}
+        activeConversationId={conversationId}
         onNewChat={startNewChat}
+        onOpenConversation={openConversation}
+        onDeleteConversation={removeConversation}
         onStatusChanged={refreshStatus}
         onClose={() => setSidebarVisible(false)}
       />

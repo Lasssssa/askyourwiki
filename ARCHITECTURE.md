@@ -50,7 +50,9 @@ Exposes a singleton `config` object used by every module:
   `SESSION_SECRET`: optional "Sign in with GitLab" (see [Authentication](#authentication))
 - `MAX_CONTEXT_TOKENS` (150,000 by default): token budget for the context sent to the model
 - `MAX_HISTORY_MESSAGES` (5 by default): number of history exchanges kept
-- `DATA_DIR`: `data/wikis/`, root of local storage
+- `SAVE_CONVERSATIONS` (true by default): persist users' chat history to disk
+- `DATA_DIR`: `data/wikis/`, root of local wiki storage
+- `CONVERSATIONS_DIR`: `data/conversations/`, root of saved chat history
 - `FRONTEND_DIST`: `frontend/dist/`, compiled web UI served by the backend
 
 `Config.validate()` returns a list of warnings (missing config) logged at startup, without
@@ -116,6 +118,21 @@ File-based persistence layer, no database.
   first) — this order is later used for context truncation.
 - `count_pages()` / `reset_scope()` are utilities for status and resync.
 
+### `storage/conversation_store.py` — `ConversationStore`
+
+File-based persistence of chat history, mirroring `WikiStore` (no database).
+
+- Layout: `data/conversations/{user}/{conversation_id}.json`, one JSON document per
+  conversation. The user and id path segments are sanitized (`[^A-Za-z0-9._-]` → `_`) so
+  they can't escape the conversations directory; when auth is disabled the user is
+  `anonymous`.
+- Each document holds `id`, `user`, `created_at`, `updated_at`, a `title` (derived from the
+  first question), and a `messages` list of `{role, content, ts}`.
+- `append_turn()` loads-or-creates the conversation, appends the user + assistant messages,
+  and writes atomically (temp file + `replace`). `list_conversations()` returns summaries
+  sorted by `updated_at` descending; `get_conversation()` / `delete_conversation()` round
+  it out. Persistence is gated by `config.SAVE_CONVERSATIONS`.
+
 ## Chat with the LLM
 
 ### `chat/context.py` — `build_context()`
@@ -176,9 +193,9 @@ SSE streaming) is strictly identical regardless of the chosen backend.
 ## FastAPI API (`main.py`)
 
 At module load time:
-- Instantiates `WikiStore`, `SyncManager`, `AsyncIOScheduler`, and the `chat_client`
-  corresponding to `LLM_PROVIDER` via `_build_chat_client()` (if the required configuration
-  is missing, `chat_client` is `None` and `/api/chat` will respond with 503).
+- Instantiates `WikiStore`, `ConversationStore`, `SyncManager`, `AsyncIOScheduler`, and the
+  `chat_client` corresponding to `LLM_PROVIDER` via `_build_chat_client()` (if the required
+  configuration is missing, `chat_client` is `None` and `/api/chat` will respond with 503).
 
 `lifespan` (app lifecycle):
 1. Logs warnings for missing configuration.
@@ -231,23 +248,32 @@ Routes:
 | `POST /api/logout` | Clears the session cookie |
 | `GET /auth/gitlab` | Redirects to GitLab's `/oauth/authorize` (with anti-CSRF state) |
 | `GET /auth/gitlab/callback` | Verifies the state, exchanges the code, opens the session |
-| `GET /api/config` | UI configuration: `gitlab_url` (sidebar link) and `title` (header) |
+| `GET /api/config` | UI configuration: `gitlab_url` (sidebar link), `title` (header), `history_enabled` |
 | `GET /api/me` | Signed-in user's GitLab profile (username, name, avatar, web URL) for the sidebar; `{}` when no session |
+| `GET /api/conversations` | Current user's conversation summaries, newest first (`[]` when history is disabled) |
+| `GET /api/conversations/{id}` | Full conversation document; 404 if unknown |
+| `DELETE /api/conversations/{id}` | Deletes one conversation; 404 if unknown |
 | `POST /api/sync` | Triggers `sync_manager.sync_all()` (400 if no scope configured) and returns the resulting status |
 | `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes, `auth_enabled` |
 | `POST /api/chat` | See below |
 
+The `/api/conversations*` routes are scoped to the caller via `_current_user(request)`
+(the signed username, or `anonymous`).
+
 ### `POST /api/chat` in detail
 
-1. Reads `{message, history}` from the JSON body. 503 if no LLM backend is configured, 400
-   if the message is empty.
+1. Reads `{message, history, conversation_id}` from the JSON body. 503 if no LLM backend is
+   configured, 400 if the message is empty.
 2. Builds the wiki context via `build_context(store, config.MAX_CONTEXT_TOKENS)` —
    **reloaded on every request** (so it immediately reflects the latest synchronization).
 3. Returns a `StreamingResponse` (`text/event-stream`) that:
    - iterates over `chat_client.stream_response(message, history, context.text)`,
-   - emits each fragment as `data: {"delta": "..."}\n\n`,
+   - accumulates the fragments and emits each as `data: {"delta": "..."}\n\n`,
    - emits `data: {"error": "..."}\n\n` on exception,
    - always ends with `data: [DONE]\n\n`.
+4. On completion (if `SAVE_CONVERSATIONS` is on, no error occurred, and the answer is
+   non-empty), persists the turn via `conversation_store.append_turn(user, conversation_id,
+   message, answer)`. Persistence failures are logged but never break the stream.
 
 ## Web interface (`frontend/`)
 
@@ -261,14 +287,18 @@ so the UI works on restricted networks without any CDN access.
 
 - **`src/chat/App.tsx`**: top-level state — the message list, streaming flag, sync
   status (polled from `/api/status` every 30s), UI config from `/api/config` (header
-  title, GitLab link), the signed-in user from `/api/me`, and mobile sidebar visibility.
-  `sendMessage()` iterates over the SSE stream and progressively updates the assistant
-  message.
+  title, GitLab link, history flag), the signed-in user from `/api/me`, the conversation
+  list from `/api/conversations`, the active `conversationId` (a fresh UUID per chat), and
+  mobile sidebar visibility. `sendMessage()` iterates over the SSE stream, progressively
+  updates the assistant message, and refreshes the conversation list once the turn is
+  saved. `openConversation()` reloads a past conversation's messages into the view and
+  `historyRef`; "New conversation" and deleting the active chat mint a new `conversationId`.
 - **`src/chat/Sidebar.tsx`**: brand, "New conversation", status card, the "Sync wikis"
-  button (with syncing/success/error states), the signed-in user card (avatar with an
-  initial-letter fallback, name and `@username`, from `GET /api/me`), the GitLab instance
-  link, and the "Log out" button (shown when `auth_enabled` is true; calls `POST /api/logout`
-  then redirects to `/login`).
+  button (with syncing/success/error states), a **History** section listing past
+  conversations (from `/api/conversations`) — click to reopen, trash icon to delete, active
+  one highlighted — the signed-in user card (avatar with an initial-letter fallback, name
+  and `@username`, from `GET /api/me`), the GitLab instance link, and the "Log out" button
+  (shown when `auth_enabled` is true; calls `POST /api/logout` then redirects to `/login`).
 - **`src/chat/Messages.tsx`**: welcome screen, message rows (user/assistant/error
   bubbles), and the animated typing indicator.
 - **`src/chat/Composer.tsx`**: auto-resizing textarea (Enter sends, Shift+Enter inserts

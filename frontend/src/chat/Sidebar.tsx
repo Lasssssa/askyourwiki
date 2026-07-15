@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
-import { logout, triggerSync, type AppConfig, type AppStatus, type CurrentUser } from "../shared/api";
-import { BrandLogo, LogoutIcon, PlusIcon } from "../shared/icons";
+import {
+  logout,
+  triggerSync,
+  type AppConfig,
+  type AppStatus,
+  type ConversationSummary,
+  type CurrentUser,
+} from "../shared/api";
+import { BrandLogo, ChatIcon, LogoutIcon, PlusIcon, TrashIcon } from "../shared/icons";
 
 const SYNC_RESET_DELAY_MS = 2500;
 
@@ -33,9 +40,57 @@ interface SidebarProps {
   status: AppStatus | null;
   config: AppConfig;
   user: CurrentUser | null;
+  conversations: ConversationSummary[];
+  activeConversationId: string;
   onNewChat: () => void;
+  onOpenConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
   onStatusChanged: () => void;
   onClose: () => void;
+}
+
+function HistoryList({
+  conversations,
+  activeConversationId,
+  onOpenConversation,
+  onDeleteConversation,
+}: Pick<
+  SidebarProps,
+  "conversations" | "activeConversationId" | "onOpenConversation" | "onDeleteConversation"
+>) {
+  if (conversations.length === 0) {
+    return <p className="history-empty">No past conversations yet.</p>;
+  }
+
+  return (
+    <ul className="history-list">
+      {conversations.map((conversation) => (
+        <li
+          key={conversation.id}
+          className={`history-item${conversation.id === activeConversationId ? " active" : ""}`}
+        >
+          <button
+            type="button"
+            className="history-open"
+            title={conversation.title}
+            onClick={() => onOpenConversation(conversation.id)}
+          >
+            <ChatIcon />
+            <span className="history-title">{conversation.title}</span>
+          </button>
+          <button
+            type="button"
+            className="history-delete"
+            aria-label="Delete conversation"
+            title="Delete conversation"
+            onClick={() => onDeleteConversation(conversation.id)}
+          >
+            <TrashIcon />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function UserCard({ user }: { user: CurrentUser }) {
@@ -76,7 +131,18 @@ function UserCard({ user }: { user: CurrentUser }) {
   );
 }
 
-export function Sidebar({ status, config, user, onNewChat, onStatusChanged, onClose }: SidebarProps) {
+export function Sidebar({
+  status,
+  config,
+  user,
+  conversations,
+  activeConversationId,
+  onNewChat,
+  onOpenConversation,
+  onDeleteConversation,
+  onStatusChanged,
+  onClose,
+}: SidebarProps) {
   const [syncState, setSyncState] = useState<SyncState>({ kind: "idle" });
   const resetTimerRef = useRef<number>(undefined);
 
@@ -167,6 +233,18 @@ export function Sidebar({ status, config, user, onNewChat, onStatusChanged, onCl
           <span>{syncLabel}</span>
         </button>
       </div>
+
+      {config.history_enabled !== false && (
+        <div className="sidebar-section sidebar-history">
+          <h2 className="sidebar-section-title">History</h2>
+          <HistoryList
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            onOpenConversation={onOpenConversation}
+            onDeleteConversation={onDeleteConversation}
+          />
+        </div>
+      )}
 
       <div className="sidebar-footer">
         {user && <UserCard user={user} />}

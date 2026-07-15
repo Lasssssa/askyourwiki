@@ -32,6 +32,7 @@ export interface AppStatus {
 export interface AppConfig {
   gitlab_url?: string;
   title?: string;
+  history_enabled?: boolean;
 }
 
 export interface SyncResult {
@@ -76,20 +77,61 @@ export async function logout(): Promise<void> {
   await apiFetch("/api/logout", { method: "POST" });
 }
 
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  updated_at: string;
+  message_count: number;
+}
+
+interface StoredMessage {
+  role: string;
+  content: string;
+  ts?: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  messages: StoredMessage[];
+}
+
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  const response = await apiFetch("/api/conversations");
+  if (!response.ok) return [];
+  const data = await response.json().catch(() => ({}));
+  return data.conversations ?? [];
+}
+
+export async function fetchConversation(id: string): Promise<ConversationDetail | null> {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function deleteConversation(id: string): Promise<boolean> {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  return response.ok;
+}
+
 export type ChatEvent = { delta: string } | { error: string };
 
 /**
  * Sends a chat message and yields streamed SSE events (deltas and errors)
- * until the server closes the stream.
+ * until the server closes the stream. `conversationId` groups turns of the same
+ * chat together so the server can persist them under one conversation.
  */
 export async function* streamChat(
   message: string,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  conversationId: string
 ): AsyncGenerator<ChatEvent> {
   const response = await apiFetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, conversation_id: conversationId }),
   });
 
   if (!response.ok || !response.body) {

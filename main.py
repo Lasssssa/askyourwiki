@@ -24,11 +24,13 @@ from chat.context import build_context
 from chat.vllm import VLLMChat
 from config import config
 from gitlab.sync import SyncManager
+from storage.conversation_store import ConversationStore
 from storage.wiki_store import WikiStore
 
 logger = logging.getLogger(__name__)
 
 store = WikiStore(config.DATA_DIR)
+conversation_store = ConversationStore(config.CONVERSATIONS_DIR)
 sync_manager = SyncManager(config, store)
 scheduler = AsyncIOScheduler()
 
@@ -136,6 +138,11 @@ def _verify_signed_cookie(cookie: str) -> Optional[str]:
 
 def _is_authenticated(request: Request) -> bool:
     return _verify_signed_cookie(request.cookies.get(SESSION_COOKIE, "")) is not None
+
+
+def _current_user(request: Request) -> str:
+    """The signed-in username, or 'anonymous' when authentication is disabled."""
+    return _verify_signed_cookie(request.cookies.get(SESSION_COOKIE, "")) or "anonymous"
 
 
 @app.middleware("http")
@@ -296,7 +303,13 @@ async def logout() -> JSONResponse:
 
 @app.get("/api/config")
 async def app_config() -> JSONResponse:
-    return JSONResponse(content={"gitlab_url": config.GITLAB_URL, "title": config.APP_TITLE})
+    return JSONResponse(
+        content={
+            "gitlab_url": config.GITLAB_URL,
+            "title": config.APP_TITLE,
+            "history_enabled": config.SAVE_CONVERSATIONS,
+        }
+    )
 
 
 @app.get("/api/me")
@@ -352,6 +365,31 @@ async def status() -> JSONResponse:
     return JSONResponse(content=result)
 
 
+@app.get("/api/conversations")
+async def list_conversations(request: Request) -> JSONResponse:
+    """Summaries of the current user's past conversations, newest first."""
+    if not config.SAVE_CONVERSATIONS:
+        return JSONResponse(content={"conversations": []})
+    conversations = conversation_store.list_conversations(_current_user(request))
+    return JSONResponse(content={"conversations": conversations})
+
+
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str, request: Request) -> JSONResponse:
+    """Full message history of one of the current user's conversations."""
+    conversation = conversation_store.get_conversation(_current_user(request), conversation_id)
+    if conversation is None:
+        return JSONResponse(status_code=404, content={"error": "Conversation not found."})
+    return JSONResponse(content=conversation)
+
+
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, request: Request) -> JSONResponse:
+    if conversation_store.delete_conversation(_current_user(request), conversation_id):
+        return JSONResponse(content={"ok": True})
+    return JSONResponse(status_code=404, content={"error": "Conversation not found."})
+
+
 @app.post("/api/chat")
 async def chat(request: Request) -> StreamingResponse:
     if chat_client is None:
@@ -364,6 +402,8 @@ async def chat(request: Request) -> StreamingResponse:
     body = await request.json()
     message = (body.get("message") or "").strip()
     history = body.get("history") or []
+    conversation_id = (body.get("conversation_id") or "").strip()
+    user = _current_user(request)
 
     if not message:
         return StreamingResponse(
@@ -375,13 +415,23 @@ async def chat(request: Request) -> StreamingResponse:
     context = build_context(store, config.MAX_CONTEXT_TOKENS)
 
     async def event_stream():
+        answer_parts: list[str] = []
+        failed = False
         try:
             async for delta in chat_client.stream_response(message, history, context.text):
+                answer_parts.append(delta)
                 yield f"data: {json.dumps({'delta': delta})}\n\n"
         except Exception as exc:  # pragma: no cover - last-resort safeguard for streaming
+            failed = True
             logger.exception("Unexpected error while streaming the response.")
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
         finally:
+            answer = "".join(answer_parts)
+            if config.SAVE_CONVERSATIONS and not failed and answer.strip():
+                try:
+                    conversation_store.append_turn(user, conversation_id, message, answer)
+                except Exception:  # pragma: no cover - persistence must never break the stream
+                    logger.exception("Failed to persist the conversation turn.")
             yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
