@@ -7,5 +7,6 @@ data/wikis/*
 !data/wikis/.gitkeep
 node_modules/
 frontend/dist/
+.npmrc
 *.log
 .DS_Store

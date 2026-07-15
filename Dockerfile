@@ -1,5 +1,10 @@
+# Base images are overridable so self-hosted deployments can point at their own
+# (mirrored or hardened) registries. Defaults reflect the current stack.
+ARG NODE_IMAGE=node:22-alpine
+ARG PYTHON_IMAGE=python:3.11-slim
+
 # --- Stage 1: build the web UI ---
-FROM node:22-alpine AS frontend
+FROM ${NODE_IMAGE} AS frontend
 
 WORKDIR /frontend
 
@@ -10,7 +15,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: application runtime ---
-FROM python:3.11-slim
+FROM ${PYTHON_IMAGE}
 
 WORKDIR /app
 

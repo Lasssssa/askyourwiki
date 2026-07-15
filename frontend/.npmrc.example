@@ -1,0 +1,14 @@
+# Copy this file to `.npmrc` and adjust it for your environment.
+# `.npmrc` is gitignored so your registry credentials never get committed.
+#
+# Self-hosted deployments often install packages from a private/mirrored
+# registry instead of the public npm one. Uncomment and fill in as needed.
+
+# Point npm at your registry:
+#registry=https://npm.your-company.internal/
+
+# Scoped registry (only for a given package scope):
+#@your-scope:registry=https://npm.your-company.internal/
+
+# Authentication token for the registry above:
+#//npm.your-company.internal/:_authToken=${NPM_TOKEN}
