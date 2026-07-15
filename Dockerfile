@@ -25,7 +25,11 @@ WORKDIR /app
 # (system CAs + any custom ones) so the app trusts them too, not just OS tools.
 COPY certs/ /usr/local/share/ca-certificates/
 RUN update-ca-certificates
+# SSL_CERT_FILE makes Python/httpx trust the merged bundle at runtime. pip keeps
+# its own vendored trust store and ignores SSL_CERT_FILE, so PIP_CERT points it
+# at the same bundle -- needed when installing through a TLS-intercepting proxy.
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
