@@ -55,11 +55,7 @@ class Config:
     # Title displayed in the web UI header
     APP_TITLE: str = os.getenv("APP_TITLE", "GitLab Wiki Assistant")
 
-    # Optional shared username/password login (disabled unless both are set)
-    AUTH_USERNAME: str = os.getenv("AUTH_USERNAME", "")
-    AUTH_PASSWORD: str = os.getenv("AUTH_PASSWORD", "")
-
-    # Optional "Sign in with GitLab" (OAuth2) against the GITLAB_URL instance.
+    # "Sign in with GitLab" (OAuth2) against the GITLAB_URL instance.
     # Requires an OAuth application registered in GitLab with the "read_user" scope.
     GITLAB_OAUTH_CLIENT_ID: str = os.getenv("GITLAB_OAUTH_CLIENT_ID", "")
     GITLAB_OAUTH_CLIENT_SECRET: str = os.getenv("GITLAB_OAUTH_CLIENT_SECRET", "")
@@ -68,12 +64,8 @@ class Config:
     GITLAB_OAUTH_REDIRECT_URI: str = os.getenv("GITLAB_OAUTH_REDIRECT_URI", "")
 
     # Secret used to sign session cookies. If empty, a secret is derived from the
-    # auth credentials (stable across restarts) or generated at startup.
+    # OAuth client secret (stable across restarts) or generated at startup.
     SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
-
-    @property
-    def password_auth_enabled(self) -> bool:
-        return bool(self.AUTH_USERNAME and self.AUTH_PASSWORD)
 
     @property
     def gitlab_auth_enabled(self) -> bool:
@@ -81,7 +73,7 @@ class Config:
 
     @property
     def auth_enabled(self) -> bool:
-        return self.password_auth_enabled or self.gitlab_auth_enabled
+        return self.gitlab_auth_enabled
 
     BASE_DIR: Path = Path(__file__).resolve().parent
     DATA_DIR: Path = BASE_DIR / "data" / "wikis"
@@ -112,8 +104,6 @@ class Config:
                 warnings.append("ANTHROPIC_MODEL is not configured.")
         else:
             warnings.append(f"Unknown LLM_PROVIDER={cls.LLM_PROVIDER!r} (valid values: 'vllm', 'anthropic').")
-        if bool(cls.AUTH_USERNAME) != bool(cls.AUTH_PASSWORD):
-            warnings.append("AUTH_USERNAME and AUTH_PASSWORD must be set together: password sign-in is disabled.")
         if bool(cls.GITLAB_OAUTH_CLIENT_ID) != bool(cls.GITLAB_OAUTH_CLIENT_SECRET):
             warnings.append(
                 "GITLAB_OAUTH_CLIENT_ID and GITLAB_OAUTH_CLIENT_SECRET must be set together: "

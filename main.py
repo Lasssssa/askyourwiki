@@ -100,22 +100,21 @@ OAUTH_STATE_COOKIE = "oauth_state"
 def _derive_session_secret() -> str:
     """Secret used to sign session cookies (HMAC key).
 
-    Prefers an explicit SESSION_SECRET; otherwise derives one from the configured
-    credentials so sessions remain valid across restarts without extra config. As a
-    last resort (no auth configured), a random per-process secret is generated.
+    Prefers an explicit SESSION_SECRET; otherwise derives one from the OAuth client
+    secret so sessions remain valid across restarts without extra config. As a last
+    resort (no auth configured), a random per-process secret is generated.
     """
     if config.SESSION_SECRET:
         return config.SESSION_SECRET
-    seed = config.AUTH_PASSWORD + config.GITLAB_OAUTH_CLIENT_SECRET
-    if seed:
-        return hashlib.sha256(seed.encode()).hexdigest()
+    if config.GITLAB_OAUTH_CLIENT_SECRET:
+        return hashlib.sha256(config.GITLAB_OAUTH_CLIENT_SECRET.encode()).hexdigest()
     return secrets.token_hex(32)
 
 
 _SESSION_SECRET = _derive_session_secret()
 
 # Paths reachable without a session, even when authentication is enabled.
-PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/api/login-options"}
+PUBLIC_PATHS = {"/login", "/api/logout"}
 PUBLIC_PREFIXES = ("/assets/", "/auth/")
 
 
@@ -194,33 +193,6 @@ def _set_session_cookie(response: Response, username: str) -> None:
         httponly=True,
         samesite="lax",
         max_age=30 * 24 * 3600,
-    )
-
-
-@app.post("/api/login")
-async def login(request: Request) -> JSONResponse:
-    if not config.password_auth_enabled:
-        return JSONResponse(status_code=403, content={"error": "Password sign-in is disabled."})
-
-    body = await request.json()
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-
-    if secrets.compare_digest(username, config.AUTH_USERNAME) and secrets.compare_digest(
-        password, config.AUTH_PASSWORD
-    ):
-        response = JSONResponse(content={"ok": True})
-        _set_session_cookie(response, username)
-        return response
-
-    return JSONResponse(status_code=401, content={"error": "Invalid username or password."})
-
-
-@app.get("/api/login-options")
-async def login_options() -> JSONResponse:
-    """Tells the login page which sign-in methods are available."""
-    return JSONResponse(
-        content={"password": config.password_auth_enabled, "gitlab": config.gitlab_auth_enabled}
     )
 
 

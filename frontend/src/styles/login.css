@@ -43,48 +43,6 @@
   color: var(--text-secondary);
 }
 
-/* Inputs, styled like the chat composer's search bar */
-.login-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  text-align: left;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.login-field-input {
-  display: flex;
-  align-items: center;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 0.65rem 1rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.login-field-input:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.login-field input {
-  flex: 1;
-  width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-primary);
-  font-size: 0.92rem;
-  line-height: 1.5;
-  padding: 0;
-}
-
-.login-field input::placeholder {
-  color: var(--text-tertiary);
-}
-
 /* Error banner */
 .login-error {
   display: flex;
@@ -146,51 +104,4 @@
 
 .login-gitlab-btn:active {
   transform: scale(0.99);
-}
-
-/* "or" separator between the two sign-in methods */
-.login-divider {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-}
-
-.login-divider::before,
-.login-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-/* Submit button, same brand color as the chat's send button */
-.login-submit {
-  margin-top: 0.25rem;
-  padding: 0.7rem 0.85rem;
-  border-radius: var(--radius-lg);
-  border: none;
-  background: var(--brand);
-  color: #fff;
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
-}
-
-.login-submit:hover:not(:disabled) {
-  background: var(--brand-hover);
-}
-
-.login-submit:active:not(:disabled) {
-  transform: scale(0.99);
-}
-
-.login-submit:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
