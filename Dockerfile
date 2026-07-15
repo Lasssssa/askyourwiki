@@ -34,6 +34,18 @@ FROM ${PYTHON_IMAGE}
 
 WORKDIR /app
 
+# Optional: trust extra CA certificates (see certs/README.md). Drop PEM files
+# named *.crt into certs/; an empty folder is a no-op. SSL_CERT_FILE and
+# REQUESTS_CA_BUNDLE point Python/httpx/requests at the merged OS bundle, and
+# pip-system-certs makes pip and certifi-based clients use it too.
+COPY certs/ /usr/local/share/ca-certificates/
+RUN update-ca-certificates -v
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+RUN pip install --no-cache-dir pip-system-certs
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

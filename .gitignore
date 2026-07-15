@@ -8,5 +8,8 @@ data/wikis/*
 node_modules/
 frontend/dist/
 .npmrc
+certs/*
+!certs/.gitkeep
+!certs/README.md
 *.log
 .DS_Store
