@@ -214,6 +214,7 @@ explicitly (e.g. when running several replicas).
 | `POST` | `/api/sync` | Triggers a manual wiki synchronization |
 | `GET` | `/api/status` | Number of indexed pages, last sync date, any errors |
 | `GET` | `/api/config` | UI configuration (GitLab instance URL, app title) |
+| `GET` | `/api/me` | Signed-in user's GitLab profile (username, name, avatar) for the sidebar |
 | `GET` | `/auth/gitlab` | Starts the "Sign in with GitLab" OAuth2 flow |
 | `GET` | `/auth/gitlab/callback` | OAuth2 callback (exchanges the code, opens the session) |
 

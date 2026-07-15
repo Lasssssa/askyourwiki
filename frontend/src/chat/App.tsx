@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   fetchConfig,
+  fetchCurrentUser,
   fetchStatus,
   streamChat,
   type AppConfig,
   type AppStatus,
   type ChatMessage,
+  type CurrentUser,
   type Role,
 } from "../shared/api";
 import { MenuIcon } from "../shared/icons";
@@ -28,6 +30,7 @@ export function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [config, setConfig] = useState<AppConfig>({});
+  const [user, setUser] = useState<CurrentUser | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
 
   // Completed user/assistant turns, sent back to the API as conversation history.
@@ -54,6 +57,12 @@ export function App() {
       .catch(() => {
         // /api/config unavailable: keep the default values without blocking the UI.
       });
+  }, []);
+
+  useEffect(() => {
+    fetchCurrentUser()
+      .then(setUser)
+      .catch(() => setUser(null));
   }, []);
 
   useEffect(() => {
@@ -134,6 +143,7 @@ export function App() {
       <Sidebar
         status={status}
         config={config}
+        user={user}
         onNewChat={startNewChat}
         onStatusChanged={refreshStatus}
         onClose={() => setSidebarVisible(false)}

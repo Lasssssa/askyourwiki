@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { logout, triggerSync, type AppConfig, type AppStatus } from "../shared/api";
+import { logout, triggerSync, type AppConfig, type AppStatus, type CurrentUser } from "../shared/api";
 import { BrandLogo, LogoutIcon, PlusIcon } from "../shared/icons";
 
 const SYNC_RESET_DELAY_MS = 2500;
@@ -32,12 +32,51 @@ type SyncState =
 interface SidebarProps {
   status: AppStatus | null;
   config: AppConfig;
+  user: CurrentUser | null;
   onNewChat: () => void;
   onStatusChanged: () => void;
   onClose: () => void;
 }
 
-export function Sidebar({ status, config, onNewChat, onStatusChanged, onClose }: SidebarProps) {
+function UserCard({ user }: { user: CurrentUser }) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const displayName = user.name || user.username;
+  const initial = displayName.charAt(0).toUpperCase();
+  const avatar =
+    user.avatar_url && !avatarFailed ? (
+      <img
+        className="user-avatar"
+        src={user.avatar_url}
+        alt=""
+        referrerPolicy="no-referrer"
+        onError={() => setAvatarFailed(true)}
+      />
+    ) : (
+      <span className="user-avatar user-avatar-fallback" aria-hidden="true">
+        {initial}
+      </span>
+    );
+
+  const body = (
+    <>
+      {avatar}
+      <span className="user-info">
+        <span className="user-name">{displayName}</span>
+        <span className="user-handle">@{user.username}</span>
+      </span>
+    </>
+  );
+
+  return user.web_url ? (
+    <a className="user-card" href={user.web_url} target="_blank" rel="noopener noreferrer">
+      {body}
+    </a>
+  ) : (
+    <div className="user-card">{body}</div>
+  );
+}
+
+export function Sidebar({ status, config, user, onNewChat, onStatusChanged, onClose }: SidebarProps) {
   const [syncState, setSyncState] = useState<SyncState>({ kind: "idle" });
   const resetTimerRef = useRef<number>(undefined);
 
@@ -130,6 +169,7 @@ export function Sidebar({ status, config, onNewChat, onStatusChanged, onClose }:
       </div>
 
       <div className="sidebar-footer">
+        {user && <UserCard user={user} />}
         {config.gitlab_url && (
           <a
             className="gitlab-link"

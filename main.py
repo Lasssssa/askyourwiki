@@ -299,6 +299,40 @@ async def app_config() -> JSONResponse:
     return JSONResponse(content={"gitlab_url": config.GITLAB_URL, "title": config.APP_TITLE})
 
 
+@app.get("/api/me")
+async def me(request: Request) -> JSONResponse:
+    """Returns the signed-in user's GitLab profile, for display in the sidebar.
+
+    The session only stores the username; the display fields (name, avatar) are
+    looked up from GitLab with the app token. Returns an empty object when there
+    is no session (e.g. authentication disabled).
+    """
+    username = _verify_signed_cookie(request.cookies.get(SESSION_COOKIE, ""))
+    if username is None:
+        return JSONResponse(content={})
+
+    profile = {"username": username, "name": None, "avatar_url": None, "web_url": None}
+    if config.GITLAB_URL and config.GITLAB_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{config.GITLAB_URL}/api/v4/users",
+                    params={"username": username},
+                    headers={"PRIVATE-TOKEN": config.GITLAB_TOKEN},
+                )
+                response.raise_for_status()
+                users = response.json()
+            if users:
+                user = users[0]
+                profile["name"] = user.get("name")
+                profile["avatar_url"] = user.get("avatar_url")
+                profile["web_url"] = user.get("web_url")
+        except httpx.HTTPError:
+            logger.warning("Could not fetch the GitLab profile for %r.", username)
+
+    return JSONResponse(content=profile)
+
+
 @app.post("/api/sync")
 async def trigger_sync() -> JSONResponse:
     if not (config.GITLAB_PROJECT_IDS or config.GITLAB_GROUP_IDS):

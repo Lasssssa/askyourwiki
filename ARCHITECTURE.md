@@ -232,6 +232,7 @@ Routes:
 | `GET /auth/gitlab` | Redirects to GitLab's `/oauth/authorize` (with anti-CSRF state) |
 | `GET /auth/gitlab/callback` | Verifies the state, exchanges the code, opens the session |
 | `GET /api/config` | UI configuration: `gitlab_url` (sidebar link) and `title` (header) |
+| `GET /api/me` | Signed-in user's GitLab profile (username, name, avatar, web URL) for the sidebar; `{}` when no session |
 | `POST /api/sync` | Triggers `sync_manager.sync_all()` (400 if no scope configured) and returns the resulting status |
 | `GET /api/status` | Returns `sync_manager.status()`: number of indexed pages, last sync, errors, configured scopes, `auth_enabled` |
 | `POST /api/chat` | See below |
@@ -260,12 +261,14 @@ so the UI works on restricted networks without any CDN access.
 
 - **`src/chat/App.tsx`**: top-level state — the message list, streaming flag, sync
   status (polled from `/api/status` every 30s), UI config from `/api/config` (header
-  title, GitLab link), and mobile sidebar visibility. `sendMessage()` iterates over the
-  SSE stream and progressively updates the assistant message.
+  title, GitLab link), the signed-in user from `/api/me`, and mobile sidebar visibility.
+  `sendMessage()` iterates over the SSE stream and progressively updates the assistant
+  message.
 - **`src/chat/Sidebar.tsx`**: brand, "New conversation", status card, the "Sync wikis"
-  button (with syncing/success/error states), the GitLab instance link, and the "Log
-  out" button (shown when `auth_enabled` is true; calls `POST /api/logout` then
-  redirects to `/login`).
+  button (with syncing/success/error states), the signed-in user card (avatar with an
+  initial-letter fallback, name and `@username`, from `GET /api/me`), the GitLab instance
+  link, and the "Log out" button (shown when `auth_enabled` is true; calls `POST /api/logout`
+  then redirects to `/login`).
 - **`src/chat/Messages.tsx`**: welcome screen, message rows (user/assistant/error
   bubbles), and the animated typing indicator.
 - **`src/chat/Composer.tsx`**: auto-resizing textarea (Enter sends, Shift+Enter inserts

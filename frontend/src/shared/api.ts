@@ -51,6 +51,21 @@ export async function fetchConfig(): Promise<AppConfig> {
   return response.json();
 }
 
+export interface CurrentUser {
+  username: string;
+  name?: string | null;
+  avatar_url?: string | null;
+  web_url?: string | null;
+}
+
+/** The signed-in GitLab user, or null when authentication is disabled. */
+export async function fetchCurrentUser(): Promise<CurrentUser | null> {
+  const response = await apiFetch("/api/me");
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  return data && data.username ? (data as CurrentUser) : null;
+}
+
 export async function triggerSync(): Promise<{ ok: boolean; data: SyncResult }> {
   const response = await apiFetch("/api/sync", { method: "POST" });
   const data = await response.json().catch(() => ({}));
